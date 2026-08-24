@@ -48,6 +48,11 @@ textarea{resize:vertical;min-height:80px;font-family:ui-monospace,Menlo,Consolas
 #actorOverlayBody .tagpick .ti input,#eventOverlayBody .tagpick .ti input,
 #studioOverlayBody .tagpick .ti input,#seriesOverlayBody .tagpick .ti input{padding-top:3px;padding-bottom:3px}
 input[type=range]{padding:0;height:30px;accent-color:var(--accent)}
+/* toggle switch (styled checkbox) — add class="switch" to a checkbox */
+input[type=checkbox].switch{appearance:none;-webkit-appearance:none;flex:none;position:relative;width:42px;height:24px;border-radius:999px;background:var(--line);border:none;padding:0;margin:0;cursor:pointer;transition:background .15s}
+input[type=checkbox].switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s}
+input[type=checkbox].switch:checked{background:var(--accent)}
+input[type=checkbox].switch:checked::after{transform:translateX(18px)}
 label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
 .tag{display:inline-block;background:var(--bg2);border:1px solid var(--line);border-radius:999px;
   padding:2px 9px;font-size:12px;margin:2px 4px 2px 0}
@@ -361,8 +366,6 @@ body.alt-activity #activityViewOverlay .photogrid .pg{aspect-ratio:16/9}
 #tab-settings .wrap>.card:not(.collapsed)>h3::after{content:"▾"}
 #tab-settings .wrap>.card.collapsed>:not(h3){display:none}
 /* Settings category switcher */
-#setCatBar{margin:4px 0 10px;flex-wrap:wrap}
-#setCatBar button{font-size:12px}
 #tab-settings .wrap>.card.cathide{display:none}
 /* provisional-rating marker (a rating still calibrating) */
 .provq{color:var(--warn,#e0a030);font-weight:700;font-size:.8em;margin-left:1px;vertical-align:super;opacity:.9}
@@ -795,6 +798,16 @@ button.boolcap{cursor:pointer;font-family:inherit}
         <button id="chsub_phototag" data-lbl="chsub_phototag" title="Tag photos" onclick="setChallengeSub('phototag')"></button>
       </div>
     </div>
+    <div class="tabsub" data-tab="settings">
+      <div class="seg full">
+        <button id="setsub_data" onclick="setSettingsCat('data')" title="Data">💾</button>
+        <button id="setsub_attributes" onclick="setSettingsCat('attributes')" title="Attributes">🏷️</button>
+        <button id="setsub_tags" onclick="setSettingsCat('tags')" title="Tags">🔖</button>
+        <button id="setsub_photos" onclick="setSettingsCat('photos')" title="Photos">📷</button>
+        <button id="setsub_ratings" onclick="setSettingsCat('ratings')" title="Ratings">⭐</button>
+        <button id="setsub_general" onclick="setSettingsCat('general')" title="General">⚙️</button>
+      </div>
+    </div>
   </div>
   <button class="appbar-sync" id="syncBtn" title="Sync" onclick="onSyncBtn()">☁️</button></header>
 <div id="pill" class="pill hide">…</div>
@@ -1076,21 +1089,9 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <!-- ===================== SETTINGS ===================== -->
 <section class="tab" id="tab-settings"><div class="wrap">
-  <h1 data-lbl="h_settings"></h1>
-
-  <div class="seg full" id="setCatBar">
-    <button data-cat="data" onclick="setSettingsCat('data')">💾 Data</button>
-    <button data-cat="attributes" onclick="setSettingsCat('attributes')">🏷️ Attributes</button>
-    <button data-cat="tags" onclick="setSettingsCat('tags')">🔖 Tags</button>
-    <button data-cat="photos" onclick="setSettingsCat('photos')">📷 Photos</button>
-    <button data-cat="ratings" onclick="setSettingsCat('ratings')">⭐ Ratings</button>
-    <button data-cat="general" onclick="setSettingsCat('general')">⚙️ General</button>
-  </div>
-
   <div class="card" data-cat="data">
     <h3>🔒 Private mode</h3>
-    <label style="margin:0;display:flex;align-items:center;gap:8px"><input type="checkbox" id="privToggle" style="width:auto" onchange="setPrivate(this.checked)"> Hide all names, labels, tags &amp; photos</label>
-    <div class="small muted" style="margin-top:8px">Replaces every name, attribute label, tag and image with placeholders so you can share screenshots without exposing private content. <b>Editing and sync are paused</b> while on — nothing is written to the Google Sheet. Numbers, dates, colours and layout stay real. This device only; turn off to restore.</div>
+    <label style="margin:0;display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="privToggle" onchange="setPrivate(this.checked)"> Hide all names, labels, tags &amp; photos</label>
   </div>
 
   <div class="card" data-cat="data">
@@ -1106,18 +1107,13 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
   <div class="card" data-cat="data">
     <h3>Data</h3>
-    <div class="databtns">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button onclick="document.getElementById('csvFile').click()">Import from CSV</button>
       <button onclick="exportData()">Export to CSV</button>
-      <button onclick="document.getElementById('csvFile').click()">Import from CSV…</button>
-      <input type="file" id="csvFile" accept=".csv,text/csv" style="display:none" onchange="importCSV(this)">
-      <button onclick="copySettingsCode()">📋 Copy settings code</button>
-      <button onclick="pasteSettingsCode()">📥 Paste settings code</button>
-      <button onclick="checkPhotos(this)">🩺 Check photos (remove broken)</button>
+      <button onclick="copySettingsCode()">📋 Copy Settings</button>
+      <button onclick="pasteSettingsCode()">📥 Paste Settings</button>
     </div>
-    <div class="databtns" style="margin-top:8px">
-      <button class="danger" onclick="clearData()">🗑 Erase local data (this device)</button>
-    </div>
-    <div class="small muted" style="margin-top:10px">Export a backup first. <b>Erase local data</b> clears everything on <i>this device only</i> (data + sync config + saved code) and reloads — the Google Sheet is left untouched, so you can reconnect Sync to pull it back. You'll be asked to confirm.</div>
+    <input type="file" id="csvFile" accept=".csv,text/csv" style="display:none" onchange="importCSV(this)">
     <div id="pasteBox" style="display:none;margin-top:10px">
       <label>Paste a settings code (from “Copy settings code” on another device)</label>
       <textarea id="pasteText" placeholder="base64 settings code"></textarea>
@@ -1189,13 +1185,11 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
   <div class="card" data-cat="tags">
     <h3>Migrate tags → activity attribute</h3>
-    <div class="small muted" style="margin-bottom:8px">Move one or more activity <b>tags</b> onto a tag-type activity <b>attribute</b>. Each selected tag is removed from every activity carrying it and added — as its own value — to the chosen attribute. (Create the attribute above first, with type <b>tag</b>.)</div>
     <div id="tagMigrateBody"></div>
   </div>
 
   <div class="card" data-cat="tags">
     <h3>Migrate activity attribute → tags</h3>
-    <div class="small muted" style="margin-bottom:8px">The inverse: move one or more values of a tag-type activity <b>attribute</b> back into the regular <b>tags</b> field. Each selected value is removed from the attribute and added as a tag on every activity carrying it.</div>
     <div id="attrMigrateBody"></div>
   </div>
 
@@ -1293,25 +1287,20 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
   <div class="card" data-cat="data">
     <h3>Update people from JSON</h3>
-    <div class="small muted" style="margin-bottom:8px">Updates <b>existing profiles</b> from a JSON array <b>on your clipboard</b>, matched by <b>name</b>. <b>Omit</b> a field to leave it unchanged; <b>null</b> clears it. Unknown names are skipped (never created); new custom attributes are created on first use.</div>
-    <div class="row" style="align-items:center;flex-wrap:wrap"><button class="sm primary" style="flex:none" onclick="applyPeopleUpdatesFromClipboard($('updOnlyEmpty').checked)">📋 Apply updates from clipboard</button><label class="small" style="display:flex;align-items:center;gap:5px;flex:none;cursor:pointer"><input type="checkbox" id="updOnlyEmpty" checked> Only fill empty fields</label></div>
+    <div class="row" style="align-items:center;flex-wrap:wrap"><button class="sm primary" style="flex:none" onclick="applyPeopleUpdatesFromClipboard($('updOnlyEmpty').checked)">📋 Update People</button><label class="small" style="display:flex;align-items:center;gap:8px;flex:none;cursor:pointer"><input type="checkbox" class="switch" id="updOnlyEmpty" checked> Empty Fields Only</label></div>
     <hr>
     <label>Prompt template <span class="muted">(put <code>{names}</code> where the names should go)</span></label>
     <textarea id="promptTemplate" placeholder="Prompt template…" style="width:100%;min-height:130px;font-family:monospace;font-size:12px"></textarea>
     <div class="row" style="margin-top:8px"><button class="sm primary" style="flex:none" onclick="savePromptTemplate()">Save template</button><button class="sm" style="flex:none" onclick="$('promptTemplate').value=DEFAULT_PROMPT_TEMPLATE">Reset to default</button></div>
-    <div class="small muted" style="margin-top:6px">Workflow: filter People → <b>✨ Copy prompt</b> (fills <code>{names}</code> with the filtered names) → paste into an AI → copy its JSON array → <b>📋 Apply updates from clipboard</b>.</div>
   </div>
 
   <div class="card" data-cat="data">
     <h3>Update activity dates from JSON</h3>
-    <div class="small muted" style="margin-bottom:8px">Updates <b>existing activities</b> from a JSON array <b>on your clipboard</b>. The <code>name</code> is the composite identifier <b>Series · Activity · People</b> (use <b>✨ Copy prompt</b> on the Activity page to generate it). The only field is the exact <b>date</b> (<code>YYYY-MM-DD</code>, or just a year). Unmatched identifiers are skipped.</div>
-    <div class="row" style="align-items:center;flex-wrap:wrap"><button class="sm primary" style="flex:none" onclick="applyActivityUpdatesFromClipboard($('updActOnlyEmpty').checked)">📋 Apply dates from clipboard</button><label class="small" style="display:flex;align-items:center;gap:5px;flex:none;cursor:pointer"><input type="checkbox" id="updActOnlyEmpty" checked> Only fill empty dates</label></div>
-    <pre class="small" style="background:var(--bg2);padding:8px;border-radius:8px;overflow:auto;font-size:11px;white-space:pre;margin-top:8px">[{ "name": "The Hollow Crown · Pilot · Ava Lindqvist, Marcus Bellandi", "date": "2014-03-21" }]</pre>
+    <div class="row" style="align-items:center;flex-wrap:wrap"><button class="sm primary" style="flex:none" onclick="applyActivityUpdatesFromClipboard($('updActOnlyEmpty').checked)">📋 Update Activity</button><label class="small" style="display:flex;align-items:center;gap:8px;flex:none;cursor:pointer"><input type="checkbox" class="switch" id="updActOnlyEmpty" checked> Empty Fields Only</label></div>
     <hr>
     <label>Activity prompt template <span class="muted">(put <code>{names}</code> where the names go)</span></label>
     <textarea id="activityPromptTemplate" placeholder="Prompt template…" style="width:100%;min-height:120px;font-family:monospace;font-size:12px"></textarea>
     <div class="row" style="margin-top:8px"><button class="sm primary" style="flex:none" onclick="saveActivityPromptTemplate()">Save template</button><button class="sm" style="flex:none" onclick="$('activityPromptTemplate').value=DEFAULT_ACTIVITY_PROMPT">Reset to default</button></div>
-    <div class="small muted" style="margin-top:6px">Workflow: filter Activities → <b>✨ Copy prompt</b> → paste into an AI → copy its JSON array → <b>📋 Apply dates from clipboard</b>.</div>
   </div>
 
   <div class="card" data-cat="general">
@@ -1483,7 +1472,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "376";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "377";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -6137,8 +6126,7 @@ function setSettingsCat(cat){
   const cats=["data","attributes","tags","photos","ratings","general"];
   if(cats.indexOf(cat)<0) cat="data";
   try{ localStorage.setItem("bench_settings_cat",cat); }catch(e){}
-  const bar=$("setCatBar");
-  if(bar) bar.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.cat===cat));
+  cats.forEach(c=>{ const b=$("setsub_"+c); if(b) b.classList.toggle("on",c===cat); });
   document.querySelectorAll('#tab-settings .wrap>.card').forEach(c=>{
     c.classList.toggle("cathide",(c.dataset.cat||"general")!==cat); });
 }
@@ -6238,7 +6226,7 @@ function renderTagMigrate(){ const host=$("tagMigrateBody"); if(!host) return;
       <button class="sm" onclick="tmSelectAll(0)">Clear</button>
     </div>
     <div id="tmTags" style="margin-top:8px;max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px">
-      ${tags.map(([t,n])=>`<label class="row" style="gap:8px;align-items:center;margin:3px 0;cursor:pointer"><input type="checkbox" class="tmChk" value="${esc(t)}" onchange="tagMigratePreview()"><span>${esc(t)} <span class="muted">(${n})</span></span></label>`).join("")}
+      ${tags.map(([t,n])=>`<label class="row" style="gap:8px;align-items:center;justify-content:space-between;margin:5px 0;cursor:pointer"><span>${esc(t)} <span class="muted">(${n})</span></span><input type="checkbox" class="switch tmChk" value="${esc(t)}" onchange="tagMigratePreview()"></label>`).join("")}
     </div>
     <div class="small" id="tmPreview" style="margin-top:8px"></div>
     <div style="margin-top:8px"><button class="sm primary" id="tmApply" onclick="applyTagMigrate()" disabled>Migrate tags</button></div>`;
@@ -6250,7 +6238,7 @@ function tmAffectedIds(sel){ const ids=new Set(); events().forEach(e=>{ const et
 function tagMigratePreview(){ const p=$("tmPreview"), apply=$("tmApply"); if(!p) return;
   const a=$("tmAttr"); if(!a) return;
   const sel=tmSelectedTags(), attr=eventTagAttrs().find(x=>x.key===a.value);
-  if(!sel.length||!attr){ p.innerHTML=`<span class="muted">${!sel.length?"Select one or more tags.":""}</span>`; if(apply) apply.disabled=true; return; }
+  if(!sel.length||!attr){ p.innerHTML=""; if(apply) apply.disabled=true; return; }
   const n=tmAffectedIds(sel).size;
   if(!n){ p.innerHTML=`<span class="muted">No activities carry the selected tag${sel.length>1?"s":""}.</span>`; if(apply) apply.disabled=true; return; }
   p.innerHTML=`Will move <b>${sel.length}</b> tag${sel.length>1?"s":""} onto attribute <b>“${esc(capLabel(attr.label))}”</b> across <b>${n}</b> activit${n===1?"y":"ies"}. Each tag is removed and added as its own value.`;
@@ -6289,7 +6277,7 @@ function renderAttrMigrate(){ const host=$("attrMigrateBody"); if(!host) return;
       <button class="sm" onclick="amSelectAll(0)">Clear</button>
     </div>
     <div id="amVals" style="margin-top:8px;max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px">
-      ${vals.length?vals.map(([t,n])=>`<label class="row" style="gap:8px;align-items:center;margin:3px 0;cursor:pointer"><input type="checkbox" class="amChk" value="${esc(t)}" onchange="attrMigratePreview()"><span>${esc(t)} <span class="muted">(${n})</span></span></label>`).join(""):'<span class="small muted">This attribute has no values.</span>'}
+      ${vals.length?vals.map(([t,n])=>`<label class="row" style="gap:8px;align-items:center;justify-content:space-between;margin:5px 0;cursor:pointer"><span>${esc(t)} <span class="muted">(${n})</span></span><input type="checkbox" class="switch amChk" value="${esc(t)}" onchange="attrMigratePreview()"></label>`).join(""):'<span class="small muted">This attribute has no values.</span>'}
     </div>
     <div class="small" id="amPreview" style="margin-top:8px"></div>
     <div style="margin-top:8px"><button class="sm primary" id="amApply" onclick="applyAttrMigrate()" disabled>Migrate to tags</button></div>`;
@@ -6302,7 +6290,7 @@ function amAffectedIds(attrKey,sel){ const ids=new Set(); const selN=sel.map(x=>
     if(selN.some(s=>arr.includes(s))) ids.add(e.id); }); return ids; }
 function attrMigratePreview(){ const p=$("amPreview"), apply=$("amApply"), a=$("amAttr"); if(!p||!a) return;
   const sel=amSelectedVals();
-  if(!sel.length){ p.innerHTML='<span class="muted">Select one or more values.</span>'; if(apply) apply.disabled=true; return; }
+  if(!sel.length){ p.innerHTML=""; if(apply) apply.disabled=true; return; }
   const n=amAffectedIds(a.value,sel).size;
   if(!n){ p.innerHTML='<span class="muted">No activities carry the selected value(s).</span>'; if(apply) apply.disabled=true; return; }
   p.innerHTML=`Will move <b>${sel.length}</b> value${sel.length>1?"s":""} to the <b>tags</b> field across <b>${n}</b> activit${n===1?"y":"ies"}. Each value is removed from the attribute and added as a tag.`;
