@@ -61,8 +61,6 @@ label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
   background:var(--bg2);border-bottom:1px solid var(--line);padding:8px 12px;font-weight:700;font-size:18px;letter-spacing:.2px}
 .appbar img{width:24px;height:24px;display:block;flex:0 0 auto}
 #appName{flex:0 0 auto}
-#privBadge{display:none;flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.3px;color:#ffd479;background:rgba(255,180,60,.15);border:1px solid rgba(255,180,60,.5);border-radius:999px;padding:2px 8px;line-height:1.4}
-body.private #privBadge{display:inline-flex;align-items:center}
 body.private .appbar{border-bottom-color:rgba(255,180,60,.6)}
 #topSub{flex:1 1 auto;min-width:0;display:flex;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
 #topSub::-webkit-scrollbar{display:none}
@@ -730,7 +728,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
-<header class="appbar"><img src="icon.svg" alt=""> <span id="appName"></span><span id="privBadge">🔒 Private</span>
+<header class="appbar"><img src="icon.svg" alt=""> <span id="appName"></span>
   <div id="topSub">
     <div class="tabsub" data-tab="rewards">
       <div class="seg full">
@@ -1463,7 +1461,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "372";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "373";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2259,8 +2257,9 @@ async function syncNow(force){
 }
 let lastSyncErr="";
 function setSyncState(t,cls){ const e=$("syncState"); if(e){ e.textContent=t; e.style.color=cls==="err"?"var(--bad)":cls==="ok"?"var(--good)":"var(--muted)"; }
-  const b=$("syncBtn"); if(b){ b.title=cls==="err"?(t+" — tap for details"):t; b.classList.toggle("err",cls==="err");
-    if(cls==="err"){ b.innerHTML="⚠️"; b.style.color="var(--bad)"; }
+  const b=$("syncBtn"); if(b){ b.title=cls==="err"?(t+" — tap for details"):t; b.classList.toggle("err",cls==="err"&&!PRIVATE);
+    if(PRIVATE){ b.innerHTML="🔒"; b.style.color="#ffd479"; }   // private mode owns the sync icon — a lock, since sync is paused
+    else if(cls==="err"){ b.innerHTML="⚠️"; b.style.color="var(--bad)"; }
     else if(cls==="sync"){ b.innerHTML='<span class="spin"></span>'; b.style.color="var(--accent2)"; }
     else { b.innerHTML="☁️"; b.style.color="var(--good)"; } }
   // No more top capsule (it overlapped the sub-tabs). The error lives on the cloud icon; tap it for the
@@ -2326,7 +2325,15 @@ function obfuscateDB(real){
   if(Array.isArray(s.imageSearchUrls)) s.imageSearchUrls=s.imageSearchUrls.map((u,i)=>({label:"Search "+(i+1),url:"https://example.com/{person}",space:(u&&u.space)||""}));
   return d;
 }
+// User-facing toggle: obfuscating + re-rendering a big DB takes a beat, so show a spinner and defer the heavy
+// work one paint so the spinner actually appears. Boot-restore calls _applyPrivate() DIRECTLY (synchronous) so
+// the very first paint is already private — no flash of real data.
 function setPrivate(on){ on=!!on; if(on===PRIVATE) return;
+  pill(on?"Switching to private mode…":"Restoring your data…","sync");   // "sync" pill shows a spinner and doesn't auto-hide
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ _applyPrivate(on);
+    toast(on?"🔒 Private mode on":"Private mode off"); }));
+}
+function _applyPrivate(on){ on=!!on; if(on===PRIVATE) return;
   if(on){ if(_saveT) saveNow();   // flush any pending REAL write before we swap the DB away (guards below then block all further writes)
     _realDB=DB; DB=obfuscateDB(_realDB); PRIVATE=true; }
   else { DB=_realDB||DB; _realDB=null; PRIVATE=false; }
@@ -2335,6 +2342,8 @@ function setPrivate(on){ on=!!on; if(on===PRIVATE) return;
   _abKey="";   // force actorById() to rebuild against the swapped-in actor list (rev+length can be identical, so the memo key alone wouldn't invalidate)
   bumpThumbEpoch();
   if($("privToggle")) $("privToggle").checked=PRIVATE;
+  if(PRIVATE) setSyncState("🔒 Private mode — sync paused","");   // flip the sync icon to a lock
+  else if(SYNC.on) syncNow(false); else setSyncState("Sync off","");   // restore the real sync state
   rerenderActive();
   if(document.querySelector("#tab-settings.active")) renderSettings();
 }
@@ -7426,7 +7435,7 @@ async function init(){
   if($("lockVer")) $("lockVer").textContent="App v"+APP_VERSION;   // shown on the lock screen so you can confirm the latest build downloaded
   if($("connVer")) $("connVer").textContent="App v"+APP_VERSION;
   await load(); loadRate(); loadFilters(); applyAltActivityClass(); renderSettings();
-  try{ if(localStorage.getItem("bench_private")==="1") setPrivate(true); }catch(e){}   // restore private mode after real data is loaded (before showTab renders + before the boot syncNow, which private then pauses)
+  try{ if(localStorage.getItem("bench_private")==="1") _applyPrivate(true); }catch(e){}   // restore synchronously (before showTab) so the first paint is already private — no flash of real data + boot syncNow stays paused
   rotEnsureTimer();                  // start the shared photo-rotation interval
   setupClearFields();                // ✕-to-clear on text fields
   let startTab="rewards"; try{ const t=localStorage.getItem("bench_tab"); if(t&&$("tab-"+t)) startTab=t; }catch(e){}   // reopen on the last page
