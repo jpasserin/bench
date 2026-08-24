@@ -169,6 +169,9 @@ th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-
 th{color:var(--muted);font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--card)}
 th.up::after{content:" ▲"} th.down::after{content:" ▼"}
 .scroll{overflow:auto;max-height:62vh;border:1px solid var(--line);border-radius:12px}
+/* Leaderboard: let the table area fill the viewport (header + filter card above, bottom nav below) */
+#rankBoardView{display:flex;flex-direction:column;height:calc(100dvh - 150px)}
+#rankBoardView>.scroll{flex:1 1 auto;max-height:none;min-height:0}
 tr:hover td{background:var(--bg2)}
 /* leaderboard Score column pinned to the right so it's always visible while scrolling skills */
 #boardTable td.scol,#boardTable th.scol{position:sticky;right:0;background:var(--card);box-shadow:-7px 0 7px -5px rgba(0,0,0,.45)}
@@ -592,6 +595,13 @@ button.boolcap{cursor:pointer;font-family:inherit}
 .appearcell .av img{width:100%;height:100%;object-fit:cover}
 .appearcell .av .ph{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:24px}
 .appearcell .an{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+/* "Seen this week": rectangular tiles, 4 per row */
+.seengrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.seencell{cursor:pointer;text-align:center;min-width:0}
+.seencell .sv{width:100%;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:#0a0c11}
+.seencell .sv img{width:100%;height:100%;object-fit:cover}
+.seencell .sv .ph{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:24px}
+.seencell .an{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
 /* activity read-only: 3-up photos */
 .actphotos{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 @media(min-width:560px){.actphotos{grid-template-columns:repeat(6,1fr)}}
@@ -819,9 +829,9 @@ button.boolcap{cursor:pointer;font-family:inherit}
   <div id="rewardsView">
     <div class="card">
       <div class="spread">
-        <button class="sm" onclick="weekShift(-1)">‹ Prev</button>
+        <button class="primary" onclick="weekShift(-1)" title="Previous week" style="flex:none;padding:9px 15px;font-weight:700">&lt;</button>
         <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px"><select id="weekSelect" onchange="weekJump(this.value)" style="width:auto;max-width:100%;font-weight:700;text-align:center"></select><button class="sm" id="weekTodayBtn" title="Jump to this week" onclick="weekToCurrent()" style="flex:none;padding:4px 9px">⊙</button></div>
-        <button class="sm" onclick="weekShift(1)">Next ›</button>
+        <button class="primary" onclick="weekShift(1)" title="Next week" style="flex:none;padding:9px 15px;font-weight:700">&gt;</button>
       </div>
     </div>
     <div id="rewardGroups"></div>
@@ -829,17 +839,19 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
   <div id="rankBoardView" style="display:none">
     <div class="card">
-      <div class="seg full" id="boardModes" style="margin-bottom:8px">
-        <button id="bmode_physical" onclick="setBoardMode('physical')">Physical</button>
-        <button id="bmode_personality" onclick="setBoardMode('personality')">Personality</button>
-        <button id="bmode_rewards" onclick="setBoardMode('rewards')">Rewards</button>
-        <button id="bmode_global" onclick="setBoardMode('global')">Global</button>
-      </div>
       <div class="fbar-row">
         <div class="filterbar" id="boardFilters"></div>
         <span class="small muted fbar-count" id="boardCount"></span>
-        <div class="fdrop fbar-more"><button class="sm fbar-icn" onclick="toggleFilterMenu(event,'board__ovf')" title="Rating set, search &amp; filters">🔍</button>
+        <div class="fdrop fbar-more"><button class="sm fbar-icn" onclick="toggleFilterMenu(event,'board__ovf')" title="Category, rating set, search &amp; filters">🔍</button>
           <div class="fmenu ovfmenu" id="fmenu_board__ovf">
+            <div class="ovf-seg" id="boardModesSeg"><span class="small muted">Category</span>
+              <div class="seg full" id="boardModes" style="margin-top:4px">
+                <button id="bmode_physical" onclick="setBoardMode('physical')">Physical</button>
+                <button id="bmode_personality" onclick="setBoardMode('personality')">Personality</button>
+                <button id="bmode_rewards" onclick="setBoardMode('rewards')">Rewards</button>
+                <button id="bmode_global" onclick="setBoardMode('global')">Global</button>
+              </div>
+            </div>
             <div class="ovf-seg"><span class="small muted">Show</span>
               <div class="seg full" style="margin-top:4px">
                 <button id="bfilt_rated" onclick="setBoardFilter('rated')">Fully rated</button>
@@ -1461,7 +1473,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "373";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "374";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2446,15 +2458,14 @@ function renderRewards(){
   const cats=DB.settings.categories||[], noms=weekNominees(week);
   // activities marked "seen this week" → little circles with the preview photo, above the nominees
   const seen=weekSeenActivities(week);
-  const seenHtml = seen.length ? `<div class="card"><div class="spread"><h3>🎬 Seen this week</h3><span class="small muted">${seen.length}</span></div><div class="appearrow">`+seen.map(e=>{ const p=(e.photoURLs||[])[0];
-    return `<div class="appearcell" onclick="openActivity('${e.id}')" title="${esc(e.eventName||"")}"><div class="av"${rowTintFor(e.tags)?` style="outline:2px solid ${rowTintFor(e.tags)};outline-offset:-2px"`:""}>${evThumbInner(e)}</div><div class="an">${esc(e.eventName||"")}</div></div>`; }).join("")+`</div></div>` : "";
+  const seenHtml = seen.length ? `<div class="card"><div class="spread"><h3>🎬 Seen this week</h3><span class="small muted">${seen.length}</span></div><div class="seengrid">`+seen.map(e=>{
+    return `<div class="seencell" onclick="openActivity('${e.id}')" title="${esc(e.eventName||"")}"><div class="sv"${rowTintFor(e.tags)?` style="outline:2px solid ${rowTintFor(e.tags)};outline-offset:-2px"`:""}>${evThumbInner(e)}</div><div class="an">${esc(e.eventName||"")}</div></div>`; }).join("")+`</div></div>` : "";
   // nominee pool for the week (eligible for every category); a ✦NEW badge marks first-time nominees
   const pool=noms.map(r=>{ const a=actorById(r.actorId), t=actorThumb(a), w=personWeekWins(r.actorId,week);
     return `<div class="nearcell" style="position:relative" title="${esc(a?a.name:"")}">
       <div class="vthumb" style="cursor:pointer" onclick="openPerson('${r.actorId}')">${thumbImg(t)}${w?`<div class="trophy">🏆${w>1?w:""}</div>`:""}${isFirstNomination(r.actorId,week)?'<div class="needbadge" style="background:var(--good);color:#04210f" title="First nomination">✦ NEW</div>':""}<button title="Remove nomination" onclick="event.stopPropagation();removeNomination('${r.id}')" style="position:absolute;bottom:4px;right:4px;width:22px;height:22px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);border:none;color:#fff;font-size:13px;line-height:1;cursor:pointer">✕</button></div>
       <div class="nn">${esc(a?a.name:"(unknown)")}</div></div>`; }).join("");
-  const nomAdd=`<div class="row" style="gap:6px;margin:8px 0 10px;align-items:flex-start"><div class="ac" style="flex:1"><input id="nomInlineInput" placeholder="Add a nominee…" autocomplete="off" oninput="nomInlineSearch(this.value)"><div class="ac-list" id="nomInlineList"></div></div><button class="primary sm" style="flex:0 0 auto" onclick="nominateInline()">Nominate</button></div>`;
-  let html=seenHtml+`<div class="card"><div class="spread"><h3>Nominees this week</h3><span class="small muted">${noms.length}</span></div>${nomAdd}${noms.length?`<div class="grid5">${pool}</div>`:'<div class="small muted">No one nominated yet.</div>'}</div>`;
+  let html=seenHtml+`<div class="card"><div class="spread"><h3>Nominees this week</h3><span class="small muted">${noms.length}</span></div>${noms.length?`<div class="grid5">${pool}</div>`:'<div class="small muted">No one nominated yet.</div>'}</div>`;
   html += cats.length ? `<div class="awardgrid">`+cats.map((cat,ci)=>{
     const wins=weekAwards(cat.id,week), winners=wins.map(w=>({rid:w.id,a:actorById(w.actorId)})).filter(x=>x.a);
     const optsFor=sel=>`<option value="">— not awarded —</option>`+noms.map(n=>{ const a=actorById(n.actorId); return `<option value="${n.actorId}"${sel===n.actorId?" selected":""}>${esc(a?a.name:"?")}</option>`; }).join("");
@@ -2463,8 +2474,8 @@ function renderRewards(){
     if(!winners.length || _awardTie.has(cat.id)) rows += `<select onchange="setAwardSlot(${ci},'',this.value)" style="width:100%;margin-top:${winners.length?5:3}px"${noms.length?"":" disabled"}>${optsFor("")}</select>`;
     const tieBtn = (winners.length && noms.length>winners.length && !_awardTie.has(cat.id)) ? `<div style="text-align:center;margin-top:6px"><button class="sm" title="Award a tie (another winner)" onclick="tieSlot(${ci})" style="padding:2px 9px;font-size:12px">🤝 Tie</button></div>` : "";
     const thumbs = winners.length ? `<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px">`+winners.map(w=>`<div class="nearcell" style="max-width:84px;cursor:pointer" onclick="openPerson('${w.a.id}')"><div class="vthumb">${thumbImg(actorThumb(w.a))}<div class="trophy">🏆</div></div><div class="nn">${esc(w.a.name)}</div></div>`).join("")+`</div>` : "";
-    return `<div class="card" style="margin:0"><div><h3 style="margin:0">🏆 ${esc(cat.label)}</h3><div class="small" style="margin-top:2px;${winners.length?"color:var(--gold)":"color:var(--muted)"}">${winners.length?"🏆 "+winners.map(w=>esc(w.a.name)).join(", "):"not awarded"}</div></div>
-      <div style="margin-top:8px"><span class="small muted">Award to:</span>${rows}</div>${tieBtn}${thumbs}</div>`;
+    return `<div class="card" style="margin:0"><div><h3 style="margin:0">🏆 ${esc(cat.label)}</h3>${winners.length?`<div class="small" style="margin-top:2px;color:var(--gold)">🏆 ${winners.map(w=>esc(w.a.name)).join(", ")}</div>`:""}</div>
+      <div style="margin-top:8px">${rows}</div>${tieBtn}${thumbs}</div>`;
   }).join("")+`</div>` : '<div class="card muted">Add a reward category in Settings to begin.</div>';
   $("rewardGroups").innerHTML=html;
 }
@@ -2504,12 +2515,13 @@ function renderTrending(){
     return `<div class="trendgrid">${slice.map(([id,d])=>row(id,d)).join("")}</div>`+pager; };
   // selector: top category + (for non-global) a sub-item row
   const pill=(active,onclick,label)=>`<button class="sm${active?" primary":""}" style="flex:none" onclick="${onclick}">${label}</button>`;
-  const topSel=`<div class="row" style="flex-wrap:wrap;gap:6px">${[["physical","Physical"],["personality","Personality"],["rewards","Rewards"],["global","Global"]].map(([c,l])=>pill(trendCat===c,`setTrendCat('${c}')`,l)).join("")}</div>`;
+  const pillF=(active,onclick,label)=>`<button class="sm${active?" primary":""}" style="flex:1 1 0;min-width:0" onclick="${onclick}">${label}</button>`;
+  const topSel=`<div class="row" style="gap:6px">${[["physical","Physical"],["personality","Personality"],["rewards","Rewards"],["global","Global"]].map(([c,l])=>pillF(trendCat===c,`setTrendCat('${c}')`,l)).join("")}</div>`;
   let subItems=[];
   if(trendCat==="physical"||trendCat==="personality") subItems=[["__all","All"]].concat(skillsByCat(trendCat).map(s=>[s.key,s.label]));
   else if(trendCat==="rewards") subItems=[["__all","All"],["ev","Activities"],["no","Nominations"],["wi","Awards"]];
   const subSel = subItems.length? `<div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${subItems.map(([k,l])=>pill(trendItem===k,`setTrendItem('${attrJs(k)}')`,esc(l))).join("")}</div>` : "";
-  $("trendingView").innerHTML=`<div class="card" style="margin-bottom:10px"><div class="small muted" style="margin-bottom:6px">Net change · last ${arrowDays()} days</div>${topSel}${subSel}</div>
+  $("trendingView").innerHTML=`<div class="card" style="margin-bottom:10px">${topSel}${subSel}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="card" style="margin:0;min-width:0"><h3>📈 Improving</h3>${section(up,trendUpPage,"trendGoUp")}</div>
       <div class="card" style="margin:0;min-width:0"><h3>📉 Declining</h3>${section(down,trendDownPage,"trendGoDown")}</div>
@@ -5149,7 +5161,7 @@ function boardColsRows(){
     return { cols, rows, val };
   }
   if(boardMode==="rewards"){
-    const cols=[{k:"name",l:"Person"},{k:"eventCount",l:"Activities"},{k:"nominationCount",l:"Nominations"},{k:"rewardCount",l:"Wins"},{k:"rewardsScore",l:"Score",sticky:true}];   // Score = weighted sum of the three
+    const cols=[{k:"name",l:"Person"},{k:"eventCount",l:"🎬",title:"Activities"},{k:"nominationCount",l:"🎖️",title:"Nominations"},{k:"rewardCount",l:"🏆",title:"Wins"},{k:"rewardsScore",l:"Score",sticky:true}];   // Score = weighted sum of the three
     const val=(r,k)=> k==="name"?r.name : r[k];
     return { cols, rows, val };
   }
@@ -5161,7 +5173,7 @@ function boardColsRows(){
 function renderBoard(){
   ["physical","personality","rewards","global"].forEach(m=>{ const b=$("bmode_"+m); if(b) b.classList.toggle("on",boardMode===m); });
   ["rated","unrated"].forEach(f=>{ const b=$("bfilt_"+f); if(b) b.classList.toggle("on",boardFilter===f); });
-  const modesEl=$("boardModes"); if(modesEl) modesEl.style.display = boardFilter==="unrated"?"none":"";   // unrated has its own columns → hide the mode tabs
+  const modesEl=$("boardModesSeg"); if(modesEl) modesEl.style.display = boardFilter==="unrated"?"none":"";   // unrated has its own columns → hide the mode picker
   // the board's own eyes/hair/year/attrs filter box — compute defs ONCE, and skip per-row work entirely when nothing is selected
   const _bdefs=FILTERS.board.defs(), _bstate=FILTERS.board.state, _bActive=Object.values(_bstate).some(fActive);
   const bf = _bActive ? (r=>rowMatchesFilters(actorById(r.id)||{}, _bdefs, _bstate)) : (()=>true);
@@ -5169,10 +5181,11 @@ function renderBoard(){
   if(boardFilter==="unrated"){
     // dedicated view: every not-fully-rated person with their need-rating + how many skills are rated
     const sks=DB.settings.skills||[];
-    cols=[{k:"name",l:"Person"},{k:"rated",l:"Rated"},{k:"need",l:"Need",sticky:true}];
-    rows=actors().filter(a=>!isFullyRated(a.id)).map(a=>{ const n=sks.filter(s=>ratingsOf(a.id).some(r=>r.skillKey===s.key)).length;
-      return { id:a.id, name:a.name, rated:n+"/"+sks.length, need:(a.needRating!=null&&a.needRating!=="")?Number(a.needRating):null }; }).filter(bf);
-    val=(r,k)=> k==="name"?r.name : k==="rated"?r.rated : r.need;
+    const cb=computeBoard(), cbById={}; cb.forEach(r=>cbById[r.id]=r);   // reuse reward tallies (activities/nominations/wins)
+    cols=[{k:"name",l:"Person"},{k:"eventCount",l:"🎬",title:"Activities"},{k:"nominationCount",l:"🎖️",title:"Nominations"},{k:"rewardCount",l:"🏆",title:"Wins"},{k:"rated",l:"Rated"},{k:"need",l:"Need",sticky:true}];
+    rows=actors().filter(a=>!isFullyRated(a.id)).map(a=>{ const n=sks.filter(s=>ratingsOf(a.id).some(r=>r.skillKey===s.key)).length, c=cbById[a.id]||{};
+      return { id:a.id, name:a.name, eventCount:c.eventCount||0, nominationCount:c.nominationCount||0, rewardCount:c.rewardCount||0, rated:n+"/"+sks.length, need:(a.needRating!=null&&a.needRating!=="")?Number(a.needRating):null }; }).filter(bf);
+    val=(r,k)=> k==="name"?r.name : k==="rated"?r.rated : k==="need"?r.need : r[k];
     if(!cols.some(c=>c.k===boardSort.key)) boardSort={key:"need",dir:-1};
   } else {
     const x=boardColsRows(); cols=x.cols; rows=x.rows; val=x.val;
@@ -5201,11 +5214,11 @@ function renderBoard(){
   // when it isn't a visible column in this mode. The Rank column is per-category, so it stays correct.
   const keyUsable = cols.some(c=>c.k===boardSort.key) || (rows.length && val(rows[0],boardSort.key)!=null);
   if(!keyUsable) boardSort = boardMode==="attributes" ? {key:"name",dir:1} : {key:scoreKeyFor(boardMode),dir:-1};
-  const isNum = boardFilter==="unrated" ? (boardSort.key==="need") : boardNumeric(boardSort.key);
+  const isNum = boardFilter==="unrated" ? ["need","eventCount","nominationCount","rewardCount"].includes(boardSort.key) : boardNumeric(boardSort.key);
   rows.sort((a,b)=>{ let x=val(a,boardSort.key), y=val(b,boardSort.key);
     if(!isNum){ x=tokenize(Array.isArray(x)?x.join(" "):(x==null?"":x)); y=tokenize(Array.isArray(y)?y.join(" "):(y==null?"":y)); return boardSort.dir*x.localeCompare(y); }
     x=(x===""||x==null?-Infinity:Number(x)); y=(y===""||y==null?-Infinity:Number(y)); return boardSort.dir*(x-y); });
-  $("boardTable").querySelector("thead").innerHTML="<tr>"+cols.map(c=>`<th class="${c.sticky?"scol ":""}${boardSort.key===c.k?(boardSort.dir<0?"down":"up"):""}" onclick="sortBoard('${c.k}')">${esc(c.l)}</th>`).join("")+"</tr>";
+  $("boardTable").querySelector("thead").innerHTML="<tr>"+cols.map(c=>`<th class="${c.sticky?"scol ":""}${boardSort.key===c.k?(boardSort.dir<0?"down":"up"):""}"${c.title?` title="${esc(c.title)}"`:""} onclick="sortBoard('${c.k}')">${esc(c.l)}</th>`).join("")+"</tr>";
   $("boardTable").querySelector("tbody").innerHTML = rows.length? rows.map((r,i)=>`<tr data-name="${esc(tokenize(r.name||""))}" class="${_boardSearch&&tokenize(r.name||"").includes(_boardSearch)?"hl":""}">`+cols.map(c=>{
     const sc=c.sticky?" scol":"";
     let v=val(r,c.k);
