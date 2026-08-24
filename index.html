@@ -37,6 +37,11 @@ button.sm{padding:5px 9px;font-size:13px;border-radius:8px}
 input,select,textarea{font:inherit;color:var(--txt);background:var(--bg2);border:1px solid var(--line);
   border-radius:10px;padding:9px 11px;width:100%}
 textarea{resize:vertical;min-height:80px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+/* Person / Activity / Series / Studio editors: slimmer fields — trim the wasted vertical padding (~⅓ shorter) */
+#actorOverlayBody input:not([type=range]),#actorOverlayBody select,
+#eventOverlayBody input:not([type=range]),#eventOverlayBody select,
+#studioOverlayBody input:not([type=range]),#studioOverlayBody select,
+#seriesOverlayBody input:not([type=range]),#seriesOverlayBody select{padding-top:5px;padding-bottom:5px}
 input[type=range]{padding:0;height:30px;accent-color:var(--accent)}
 label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
 .tag{display:inline-block;background:var(--bg2);border:1px solid var(--line);border-radius:999px;
@@ -1473,7 +1478,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "374";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "375";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -4353,7 +4358,7 @@ function tpRender(key){ const p=TP[key], wrap=$(p.cid); if(!wrap) return;
   let meta="";
   if(p.metaRec) meta=metaTagsFor(p.metaEnt).filter(m=>hasMetaTag(p.metaRec,m.key)).map(m=>
     `<span class="chip metachip">${esc(m.label)}<b onclick="mtChipRemove('${key}','${m.key}')">✕</b></span>`).join("");
-  wrap.innerHTML=chips+meta+`<span class="ti"><input id="tp_${key}" placeholder="add…" autocomplete="off" oninput="tpSuggest('${key}')" onkeydown="tpKey('${key}',event)"><div class="tagsug" id="tpsug_${key}"></div></span>`;
+  wrap.innerHTML=chips+meta+`<span class="ti"><input id="tp_${key}" placeholder="+" autocomplete="off" oninput="tpSuggest('${key}')" onkeydown="tpKey('${key}',event)"><div class="tagsug" id="tpsug_${key}"></div></span>`;
 }
 function tpSuggest(key){ const p=TP[key], inp=$("tp_"+key); if(!inp) return; const q=tokenize(inp.value), typed=inp.value.trim(), all=p.sugFn();
   TPsug[key]=all.filter(x=>!p.arr.includes(x)&&tokenize(x).includes(q)).slice(0,8);
