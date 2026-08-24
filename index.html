@@ -61,6 +61,9 @@ label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
   background:var(--bg2);border-bottom:1px solid var(--line);padding:8px 12px;font-weight:700;font-size:18px;letter-spacing:.2px}
 .appbar img{width:24px;height:24px;display:block;flex:0 0 auto}
 #appName{flex:0 0 auto}
+#privBadge{display:none;flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.3px;color:#ffd479;background:rgba(255,180,60,.15);border:1px solid rgba(255,180,60,.5);border-radius:999px;padding:2px 8px;line-height:1.4}
+body.private #privBadge{display:inline-flex;align-items:center}
+body.private .appbar{border-bottom-color:rgba(255,180,60,.6)}
 #topSub{flex:1 1 auto;min-width:0;display:flex;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
 #topSub::-webkit-scrollbar{display:none}
 .tabsub{display:none;flex:1 1 auto;gap:8px;align-items:center;width:100%}
@@ -727,7 +730,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
-<header class="appbar"><img src="icon.svg" alt=""> <span id="appName"></span>
+<header class="appbar"><img src="icon.svg" alt=""> <span id="appName"></span><span id="privBadge">🔒 Private</span>
   <div id="topSub">
     <div class="tabsub" data-tab="rewards">
       <div class="seg full">
@@ -1062,6 +1065,12 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <button data-cat="photos" onclick="setSettingsCat('photos')">📷 Photos</button>
     <button data-cat="ratings" onclick="setSettingsCat('ratings')">⭐ Ratings</button>
     <button data-cat="general" onclick="setSettingsCat('general')">⚙️ General</button>
+  </div>
+
+  <div class="card" data-cat="data">
+    <h3>🔒 Private mode</h3>
+    <label style="margin:0;display:flex;align-items:center;gap:8px"><input type="checkbox" id="privToggle" style="width:auto" onchange="setPrivate(this.checked)"> Hide all names, labels, tags &amp; photos</label>
+    <div class="small muted" style="margin-top:8px">Replaces every name, attribute label, tag and image with placeholders so you can share screenshots without exposing private content. <b>Editing and sync are paused</b> while on — nothing is written to the Google Sheet. Numbers, dates, colours and layout stay real. This device only; turn off to restore.</div>
   </div>
 
   <div class="card" data-cat="data">
@@ -1454,7 +1463,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "371";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "372";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1482,6 +1491,13 @@ const DEFAULT_SETTINGS = {
 };
 var DB = { actors:[], ratings:[], events:[], rewards:[], history:[], studios:[], series:[], teams:[], collections:[], settings:clone(DEFAULT_SETTINGS), settingsTs:0, rateQueue:null, rateQueueTs:0, rev:0, bv:0 };   // var (not let) so it's reachable as window.DB — for debugging + the migration smoke test
 let SYNC = { url:"", secret:"", on:false };
+// PRIVATE MODE: swap the live DB for an obfuscated deep-clone so screenshots reveal layout+data-volume but no
+// real content. _realDB holds the untouched data while private is on; all write/sync paths are hard-blocked so
+// nothing obfuscated can ever reach IndexedDB or the Google Sheet. PRIV_IMG is a generic avatar placeholder —
+// every photo URL becomes a UNIQUE "PRIV_IMG#pN" string so photo counts/predicates/galleries render identically
+// while no real URL touches the DOM.
+let PRIVATE=false, _realDB=null;
+const PRIV_IMG="data:image/svg+xml;utf8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#3a3a44"/><circle cx="60" cy="46" r="22" fill="#5a5a66"/><rect x="26" y="76" width="68" height="42" rx="21" fill="#5a5a66"/></svg>');
 
 let weekOffset = 0;           // 0 = current week (Rewards always opens here)
 let rewardActorId = null;     // chosen actor in the nomination form
@@ -1803,7 +1819,7 @@ async function load(){
   try{ const s=localStorage.getItem(LS_SYNC); if(s) SYNC=Object.assign(SYNC,JSON.parse(s)); }catch(e){}
 }
 let _saveT=null;
-function save(){ clearTimeout(_saveT); _saveT=setTimeout(saveNow,250); }   // debounced (coalesces bursts; off the main thread)
+function save(){ if(PRIVATE) return; clearTimeout(_saveT); _saveT=setTimeout(saveNow,250); }   // debounced (coalesces bursts; off the main thread). Private mode never persists (obfuscated data must not overwrite the real DB).
 function saveNow(){ clearTimeout(_saveT); _saveT=null;
   idbSet(IDB_KEY,DB).catch(()=>{ try{ localStorage.setItem(LS,JSON.stringify(DB)); }catch(e){} }); }   // fall back to localStorage if IDB is unavailable
 // Categories are {id,label} and awards reference the id. This upgrades any legacy data (string
@@ -2081,7 +2097,7 @@ function eventLang(e){ return eventLangs(e)[0]||null; }   // first language (bac
 
 function touch(rec){ rec.updatedAt=now(); DB.rev=Math.max(DB.rev||0, rec.updatedAt); }
 function bumpSettings(){ DB.settingsTs=now(); DB.rev=Math.max(DB.rev||0, DB.settingsTs); }
-function commit(){ save(); scheduleSync(); }
+function commit(){ if(PRIVATE) return; save(); scheduleSync(); }   // catch-all write barrier: every edit routes through here, so private mode can persist nothing
 
 /* ============================ tab nav ============================ */
 function showTab(name){
@@ -2152,8 +2168,8 @@ async function api(action,data){
 }
 let syncT=null, syncing=false, suppressSync=false;
 let lastPushedSig=null, lastSeenRev=0;   // session baselines: skip a sync when the server isn't ahead AND we have no local changes
-function scheduleSync(){ if(suppressSync||!SYNC.on) return; clearTimeout(syncT); syncT=setTimeout(()=>syncNow(false),900); }
-function flushSync(){ if(suppressSync||!SYNC.on) return; clearTimeout(syncT); syncNow(false); }
+function scheduleSync(){ if(PRIVATE||suppressSync||!SYNC.on) return; clearTimeout(syncT); syncT=setTimeout(()=>syncNow(false),900); }
+function flushSync(){ if(PRIVATE||suppressSync||!SYNC.on) return; clearTimeout(syncT); syncNow(false); }
 
 function mergeList(local,remote){
   const map={}; (local||[]).forEach(r=>map[r.id]=r);
@@ -2184,6 +2200,7 @@ function colDirty(local,remote,tsKey){ tsKey=tsKey||"updatedAt";
   for(let i=0;i<loc.length;i++){ const r=loc[i], rt=rm[r.id]; if(rt===undefined || (r[tsKey]||0)>rt) return true; }
   return false; }
 async function syncNow(force){
+  if(PRIVATE){ setSyncState("🔒 Private mode — sync paused",""); return; }
   if(!SYNC.on||syncing) return; syncing=true; setSyncState("Syncing…","sync");
   try{
     if(!force){
@@ -2258,6 +2275,70 @@ function toggleSyncPop(force){ const p=$("syncPop"); if(!p) return;
   else p.classList.add("hide"); }
 function resyncFromPop(){ toggleSyncPop(false); syncNow(true); }
 function rerenderActive(){ const a=document.querySelector(".tab.active"); if(a) showTab(a.id.replace("tab-","")); }
+
+/* ============================ PRIVATE MODE ============================ */
+// Build an obfuscated deep-clone of the real DB. What's HIDDEN: people/activity/studio/series/team/collection
+// names, aliases, attribute+skill+tag+category labels, tag values, free text (links, text/url attr values),
+// and every image (→ unique PRIV_IMG placeholders). What's KEPT REAL so the layout looks lifelike: all numbers
+// (ratings, counts, years, dates, weights), country/region, eye/hair colour VALUES, and every id/key/type —
+// so relationships, ratings and record counts render exactly as they do live. Consistent maps keep the same
+// studio/series/tag mapping to the same placeholder everywhere it appears.
+function obfuscateDB(real){
+  const d=clone(real);
+  const s=d.settings||(d.settings={});
+  const pType={}, eType={};
+  (s.attributes||[]).forEach(a=>{ if(a&&a.key) pType[a.key]=a.type; });
+  (s.eventAttributes||[]).forEach(a=>{ if(a&&a.key) eType[a.key]=a.type; });
+  // consistent name/tag maps (same input → same placeholder, in first-seen order)
+  const studioMap=Object.create(null); let _sc=0; const mapStudio=n=>{ if(!n) return n; if(!(n in studioMap)) studioMap[n]="Studio "+(++_sc); return studioMap[n]; };
+  const seriesMap=Object.create(null); let _rc=0; const mapSeries=n=>{ if(!n) return n; if(!(n in seriesMap)) seriesMap[n]="Series "+(++_rc); return seriesMap[n]; };
+  const tagMap=Object.create(null); let _tc=0; const mapTag=l=>{ if(l==="excluded") return "excluded";   // NEVER rename the literal "excluded" tag — isExcluded() reads it, so renaming would change the visible person set
+    if(!(l in tagMap)) tagMap[l]="Tag "+(++_tc); return tagMap[l]; };
+  let _pc=0;
+  function obfPhotos(rec){ if(!rec) return; const m=Object.create(null);
+    if(Array.isArray(rec.photoURLs)) rec.photoURLs=rec.photoURLs.map(u=>{ const nu=PRIV_IMG+"#p"+(_pc++); m[u]=nu; return nu; });
+    if(Array.isArray(rec.profilePics)) rec.profilePics=rec.profilePics.map(u=> m[u] || (PRIV_IMG+"#p"+(_pc++)) );   // preserve favourite count even for orphan stars
+    if(rec.photoTags && typeof rec.photoTags==="object"){ const pt={}; for(const u in rec.photoTags){ const nu=m[u]||(PRIV_IMG+"#p"+(_pc++)); pt[nu]=rec.photoTags[u]; } rec.photoTags=pt; } }
+  function obfLinks(rec){ if(Array.isArray(rec.links)) rec.links=rec.links.map((l,i)=>({label:"Link "+(i+1),url:"https://example.com/"+(i+1),fav:!!(l&&l.fav)})); }
+  function obfAttrs(attrs,typeByKey){ if(!attrs||typeof attrs!=="object") return;
+    for(const k in attrs){ const t=(typeByKey&&typeByKey[k])||"text"; const v=attrs[k];
+      if(t==="number"||t==="boolean"||t==="date") continue;   // numbers/dates/booleans stay real
+      if(t==="tag"){ if(Array.isArray(v)) attrs[k]=v.map((x,i)=>"Tag "+(i+1)); else if(typeof v==="string"&&v) attrs[k]="Tag 1"; continue; }
+      if(typeof v==="string"&&v) attrs[k]= (t==="url" ? "https://example.com/x" : "Text");   // free text / url values
+    } }
+  function obfTags(rec){ if(Array.isArray(rec.tags)) rec.tags=rec.tags.map(mapTag); }
+  (d.actors||[]).forEach((a,i)=>{ a.name="Person "+(i+1); if(a.alias) a.alias="Alias "+(i+1);
+    obfPhotos(a); obfLinks(a); obfAttrs(a.attrs,pType); obfTags(a); });   // metaTags/country/state/eye/hair/dob/years all kept
+  (d.events||[]).forEach((e,i)=>{ e.eventName="Activity "+(i+1);
+    if(e.studioName) e.studioName=mapStudio(e.studioName); if(e.series) e.series=mapSeries(e.series);
+    obfPhotos(e); obfLinks(e); obfAttrs(e.attrs,eType); obfTags(e); });   // seriesId kept → activity stays linked to its (renamed) series
+  (d.studios||[]).forEach(st=>{ st.name=mapStudio(st.name); obfTags(st); obfPhotos(st); obfAttrs(st.attrs,{}); });
+  (d.series||[]).forEach(se=>{ se.name=mapSeries(se.name); obfTags(se); });
+  (d.teams||[]).forEach((t,i)=>{ t.name="Team "+(i+1); obfTags(t); obfPhotos(t); obfAttrs(t.attrs,pType); });   // memberIds kept → team roster intact
+  (d.collections||[]).forEach((c,i)=>{ if(c&&c.name!=null) c.name="Collection "+(i+1); });
+  // settings labels (keep appName, ids, keys, types, colours, weights, numbers)
+  (s.categories||[]).forEach((c,i)=>{ if(c) c.label="Category "+(i+1); });
+  (s.skills||[]).forEach((sk,i)=>{ if(sk) sk.label="Skill "+(i+1); });
+  const nAttr=(s.attributes||[]).length;
+  (s.attributes||[]).forEach((a,i)=>{ if(a) a.label="Field "+(i+1); });
+  (s.eventAttributes||[]).forEach((a,i)=>{ if(a) a.label="Field "+(nAttr+i+1); });
+  (s.tags||[]).forEach(tg=>{ if(tg&&tg.label!=null) tg.label=mapTag(tg.label); });
+  if(Array.isArray(s.imageSearchUrls)) s.imageSearchUrls=s.imageSearchUrls.map((u,i)=>({label:"Search "+(i+1),url:"https://example.com/{person}",space:(u&&u.space)||""}));
+  return d;
+}
+function setPrivate(on){ on=!!on; if(on===PRIVATE) return;
+  if(on){ if(_saveT) saveNow();   // flush any pending REAL write before we swap the DB away (guards below then block all further writes)
+    _realDB=DB; DB=obfuscateDB(_realDB); PRIVATE=true; }
+  else { DB=_realDB||DB; _realDB=null; PRIVATE=false; }
+  try{ localStorage.setItem("bench_private", PRIVATE?"1":"0"); }catch(e){}
+  document.body.classList.toggle("private",PRIVATE);
+  _abKey="";   // force actorById() to rebuild against the swapped-in actor list (rev+length can be identical, so the memo key alone wouldn't invalidate)
+  bumpThumbEpoch();
+  if($("privToggle")) $("privToggle").checked=PRIVATE;
+  rerenderActive();
+  if(document.querySelector("#tab-settings.active")) renderSettings();
+}
+function privBlock(){ if(PRIVATE){ toast("🔒 Private mode — editing is off"); return true; } return false; }
 
 /* ============================ REWARDS ============================ */
 function weekShift(d){ weekOffset+=d; saveAwardWeek(); renderRewards(); }
@@ -3242,6 +3323,7 @@ function renderActors(page){
 }
 
 function openActorEditor(id){
+  if(privBlock()) return;
   editingActorId=id||null;
   const a = id? clone(actorById(id)) : { id:uid("ac"), name:"", alias:"", photoURLs:[], links:[], tags:[], metaTags:[], country:"", state:"", yearOfBirth:"", dob:"", careerStart:"", careerEnd:"", eyeColor:[], hairColor:[], attrs:{}, deleted:false };
   if(a.alias==null) a.alias=""; if(!a.links) a.links=[]; if(!a.tags) a.tags=[]; if(!a.metaTags) a.metaTags=[]; if(a.state==null) a.state=""; if(a.dob==null) a.dob=""; if(!a.eyeColor) a.eyeColor=[]; if(!a.hairColor) a.hairColor=[]; if(a.careerStart==null) a.careerStart=""; if(a.careerEnd==null) a.careerEnd=""; if(!a.profilePics) a.profilePics=[];
@@ -4163,6 +4245,7 @@ function evThumbInner(e){ const tint=rowTintFor(e.tags);
   return thumbImg(eventThumb(e),"🎬") + (tint?`<div class="evstar" style="color:${tint}">★</div>`:""); }
 function evTintStyle(e){ const tint=rowTintFor(e.tags); return tint?` style="border-color:${tint}"`:""; }   // coloured contour on the card
 function openEventEditor(id,seriesId){
+  if(privBlock()) return;
   const e = id? clone(events().find(x=>x.id===id)) : { id:uid("ev"), actorIds:[], studioName:"", series:"", eventName:"", year:"", tags:[], metaTags:[], links:[], photoURLs:[], deleted:false };
   if(!id && seriesId){ const se=seriesById(seriesId); if(se&&!se.deleted){ const st=studioById(se.studioId); e.seriesId=se.id; e.series=se.name||""; e.studioName=st&&!st.deleted?st.name:""; } }   // pre-link a new activity to a series
   if(!e.actorIds||!e.actorIds.length) e.actorIds = e.actorId?[e.actorId]:[];
@@ -4499,6 +4582,7 @@ function openSeries(id){ bumpThumbEpoch(); const se=seriesById(id); if(!se||se.d
 let _studioSaveT=null;
 function studioTagSuggest(){ return tagsFrom(allStudios(), knownTags()); }
 function openStudioEditor(id){
+  if(privBlock()) return;
   const s = id? clone(studioById(id)) : { id:uid("st"), name:"", photoURLs:[], profilePics:[], tags:[], links:[], deleted:false };
   if(!s.tags)s.tags=[]; if(!s.links)s.links=[]; if(!s.photoURLs)s.photoURLs=[]; if(!s.profilePics)s.profilePics=[];
   window.__draftStudio=s;
@@ -4728,6 +4812,7 @@ function confirmMergePeople(){ if(!_merge) return; const {keeper, others, plan, 
 let _seriesSaveT=null;
 function seriesTagSuggest(){ return tagsFrom(allSeries(), knownTags()); }
 function openSeriesEditor(id, studioId){
+  if(privBlock()) return;
   const se = id? clone(seriesById(id)) : { id:uid("se"), studioId:studioId||"", name:"", photoURLs:[], profilePics:[], tags:[], links:[], deleted:false };
   if(!se.tags)se.tags=[]; if(!se.links)se.links=[]; if(!se.photoURLs)se.photoURLs=[]; if(!se.profilePics)se.profilePics=[];
   window.__draftSeries=se;
@@ -4776,6 +4861,7 @@ function deleteSeries(id){ const se=seriesById(id), studioId=se&&se.studioId;
 /* ----- Team editor ----- */
 let _teamSaveT=null;
 function openTeamEditor(id){
+  if(privBlock()) return;
   const t = id? clone(teamById(id)) : { id:uid("tm"), name:"", photoURLs:[], profilePics:[], memberIds:[], tags:[], attrs:{}, deleted:false };
   if(!t.memberIds)t.memberIds=[]; if(!t.photoURLs)t.photoURLs=[]; if(!t.profilePics)t.profilePics=[]; if(!t.tags)t.tags=[]; if(!t.attrs)t.attrs={};
   window.__draftTeam=t;
@@ -6028,6 +6114,7 @@ function renderSettings(){
   setupSettingsCollapse();
   { let cat="data"; try{ cat=localStorage.getItem("bench_settings_cat")||"data"; }catch(e){} setSettingsCat(cat); }
   $("syncUrl").value=SYNC.url; $("syncSecret").value=SYNC.secret; $("syncOn").checked=SYNC.on;
+  if($("privToggle")) $("privToggle").checked=PRIVATE;
   const s=DB.settings;
   $("setCats").innerHTML=(s.categories||[]).map((c,i)=>`<div class="row" style="margin:4px 0;gap:6px"><input style="flex:1" value="${esc(c.label)}" onchange="renameCat(${i},this.value)" title="Rename — awards stay linked"><button class="sm danger" onclick="delCat(${i})">✕</button></div>`).join("")||'<span class="small muted">None.</span>';
   $("setImgUrls").innerHTML=(s.imageSearchUrls||[]).map((u,i)=>`<div class="row" style="margin:4px 0;gap:6px"><input style="flex:3;min-width:0" value="${esc(u.url||"")}" onchange="setImgUrl(${i},'url',this.value)" placeholder="https://…/{person}/…"><input style="flex:0 0 60px;width:60px" value="${esc(u.space||"")}" onchange="setImgUrl(${i},'space',this.value)" placeholder="space→" maxlength="3" title="replaces spaces in the name"><button class="sm danger" onclick="delImgUrl(${i})">✕</button></div>`).join("")||'<span class="small muted">None — add one to enable Quick fetch.</span>';
@@ -6875,7 +6962,7 @@ function clearData(){
 }
 
 /* ============================ PHOTO PICKER ============================ */
-function openPicker(){ pickScrapeSeq++;   // invalidate any scrape loop still running from a previous session
+function openPicker(){ if(privBlock()) return; pickScrapeSeq++;   // invalidate any scrape loop still running from a previous session
   pickerTarget=curPhotoDraft; pickImages=[]; pickSel=new Set(); pickPage=1; if(pickSeq)pickSeq.cancel=true; pickSeq=null; $("pickGallery").innerHTML=""; $("pickPager").innerHTML=""; $("pickMsg").textContent=""; pickLoad(null); updateSeqBtn(); openOverlay("pickerOverlay"); }
 function closePicker(){ if(pickSel&&pickSel.size) confirmDialog(`Discard ${pickSel.size} selected photo(s)?`, ()=>closeOverlay("pickerOverlay"), "Discard"); else closeOverlay("pickerOverlay"); }
 // spinner + optional "n / total" progress cue in the picker toolbar; pass null to hide it
@@ -7339,6 +7426,7 @@ async function init(){
   if($("lockVer")) $("lockVer").textContent="App v"+APP_VERSION;   // shown on the lock screen so you can confirm the latest build downloaded
   if($("connVer")) $("connVer").textContent="App v"+APP_VERSION;
   await load(); loadRate(); loadFilters(); applyAltActivityClass(); renderSettings();
+  try{ if(localStorage.getItem("bench_private")==="1") setPrivate(true); }catch(e){}   // restore private mode after real data is loaded (before showTab renders + before the boot syncNow, which private then pauses)
   rotEnsureTimer();                  // start the shared photo-rotation interval
   setupClearFields();                // ✕-to-clear on text fields
   let startTab="rewards"; try{ const t=localStorage.getItem("bench_tab"); if(t&&$("tab-"+t)) startTab=t; }catch(e){}   // reopen on the last page
