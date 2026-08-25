@@ -264,6 +264,8 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .gallery .g .gstar{position:absolute;bottom:4px;left:4px;font-size:12px;background:rgba(0,0,0,.72);border:none;border-radius:6px;color:var(--gold);padding:2px 8px;z-index:2}
 .gallery .g .lowq{position:absolute;top:4px;left:4px;font-size:12px;background:rgba(0,0,0,.72);border-radius:6px;padding:1px 5px;z-index:2;line-height:1.4}
 .gallery .g .lowq.lowq-bad{background:rgba(200,30,40,.9)}
+.pickhidelow{color:var(--bad);border-color:var(--bad)}
+.pickhidelow.on{background:var(--bad);color:#fff;border-color:var(--bad)}
 
 /* ---- Gallery review page (bulk favorite / delete / tag) ---- */
 .grtools{display:flex;flex-wrap:nowrap;gap:6px;margin:2px 0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -1393,6 +1395,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
       <span id="pickLoad" class="small muted" style="display:none;align-items:center;gap:6px"><span class="spin"></span> <span id="pickLoadTxt"></span></span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="sm pickhidelow" id="pickHideLowBtn" onclick="pickToggleHideLow()" title="Hide very low-resolution images (short side under half the minimum)">⛔</button>
       <button class="sm" id="pickSelAllBtn" onclick="pickSelectAll()">Select All</button>
     </div>
   </div>
@@ -1493,7 +1496,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "379";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "380";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1535,6 +1538,8 @@ let rewardCats = new Set();   // chosen categories
 let editingActorId = null;    // actor open in editor overlay
 let pickerTarget = null;      // actorId receiving picked photos
 let pickImages = [], pickSel = new Set(), pickPage = 1;
+let pickQual = {};          // scraper: url -> short-side px (min(w,h)), filled as images load
+let pickHideLow = false;    // scraper toggle: hide images at/under HALF the min-res threshold (the ⛔ "very low" ones)
 let pickScrapeSeq = 0;        // bumped on every openPicker/close → a running scrape loop bails when its token goes stale
 let boardSort = {key:"globalScore", dir:-1};
 
@@ -7035,7 +7040,7 @@ function clearData(){
 
 /* ============================ PHOTO PICKER ============================ */
 function openPicker(){ if(privBlock()) return; pickScrapeSeq++;   // invalidate any scrape loop still running from a previous session
-  pickerTarget=curPhotoDraft; pickImages=[]; pickSel=new Set(); pickPage=1; if(pickSeq)pickSeq.cancel=true; pickSeq=null; $("pickGallery").innerHTML=""; $("pickPager").innerHTML=""; $("pickMsg").textContent=""; pickLoad(null); updateSeqBtn(); openOverlay("pickerOverlay"); }
+  pickerTarget=curPhotoDraft; pickImages=[]; pickSel=new Set(); pickPage=1; pickQual={}; pickHideLow=false; const hb=$("pickHideLowBtn"); if(hb) hb.classList.remove("on"); if(pickSeq)pickSeq.cancel=true; pickSeq=null; $("pickGallery").innerHTML=""; $("pickPager").innerHTML=""; $("pickMsg").textContent=""; pickLoad(null); updateSeqBtn(); openOverlay("pickerOverlay"); }
 function closePicker(){ if(pickSel&&pickSel.size) confirmDialog(`Discard ${pickSel.size} selected photo(s)?`, ()=>closeOverlay("pickerOverlay"), "Discard"); else closeOverlay("pickerOverlay"); }
 // spinner + optional "n / total" progress cue in the picker toolbar; pass null to hide it
 function pickLoad(txt){ const el=$("pickLoad"); if(!el) return; if(txt==null){ el.style.display="none"; } else { $("pickLoadTxt").textContent=txt; el.style.display="inline-flex"; } }
@@ -7106,21 +7111,41 @@ async function findImages(){
     renderPicker(1);
   }catch(e){ $("pickMsg").textContent="Error: "+e.message; }
 }
+// the ⛔ toggle drops images whose short side is at or under half the min-res threshold (the "very low" set)
+function pickIsVeryLow(u){ const px=pickQual[u]; return px!=null && px<=lowqMinRes()/2; }
+function pickVisibleImages(){ return pickHideLow ? pickImages.filter(u=>!pickIsVeryLow(u)) : pickImages; }
 function renderPicker(page){
-  const per=12, pages=Math.max(1,Math.ceil(pickImages.length/per)); page=Math.min(Math.max(1,page),pages); pickPage=page;
-  const slice=pickImages.slice((page-1)*per,page*per);
+  const vis=pickVisibleImages();
+  const per=12, pages=Math.max(1,Math.ceil(vis.length/per)); page=Math.min(Math.max(1,page),pages); pickPage=page;
+  const slice=vis.slice((page-1)*per,page*per);
   let html=slice.map(u=>`<div class="g ${pickSel.has(u)?"sel":""}" onclick="togglePick('${esc(u)}')">
-    <img src="${esc(u)}" referrerpolicy="no-referrer" loading="lazy" onload="markPickQuality(this)"></div>`).join("");
+    <img src="${esc(u)}" data-u="${esc(u)}" referrerpolicy="no-referrer" loading="lazy" onload="markPickQuality(this)"></div>`).join("");
+  if(!html) html=pickHideLow&&pickImages.length?'<div class="small muted" style="padding:16px">All images on this page are very low-resolution and hidden. Tap ⛔ to show them.</div>':"";
   $("pickGallery").innerHTML=html;
   buildPager("pickPager",page,pages,"renderPicker");
   $("pickAddBtn").textContent=`Add selected (${pickSel.size})`;
 }
+// measure every scraped image off-screen so the ⛔ filter is complete (not just the current page)
+let _pickQualT=null;
+function pickEnsureQuality(cb){ const urls=pickImages.filter(u=>pickQual[u]==null);
+  if(!urls.length){ cb&&cb(); return; }
+  let left=urls.length; urls.forEach(u=>{ let done=false; const img=new Image(); img.referrerPolicy="no-referrer";
+    const fin=px=>{ if(done) return; done=true; pickQual[u]=px; if(--left<=0) cb&&cb(); };
+    img.onload=()=>fin(Math.min(img.naturalWidth||1,img.naturalHeight||1)); img.onerror=()=>fin(0);
+    setTimeout(()=>fin(0),10000); img.src=u; }); }
+function pickToggleHideLow(){ pickHideLow=!pickHideLow;
+  const b=$("pickHideLowBtn"); if(b) b.classList.toggle("on",pickHideLow);
+  if(pickHideLow){ pickEnsureQuality(()=>{ if(pickHideLow) renderPicker(1); }); renderPicker(1); }   // re-render now with what's measured, again when the rest lands
+  else renderPicker(pickPage); }
 // An image whose SHORT side is smaller than the threshold will upscale (look soft) when shown
 // full-width → flag it as low quality in the picker. Threshold is a setting (Settings → Photos);
 // one value covers both portrait and landscape since we compare against min(w,h).
 function lowqMinRes(){ const v=Number(DB.settings&&DB.settings.lowqMinRes); return (!isNaN(v)&&v>0)?Math.round(v):720; }
 function markPickQuality(img){ const w=img.naturalWidth,h=img.naturalHeight; if(!w||!h) return;
-  const min=Math.min(w,h), thr=lowqMinRes(); if(min>=thr) return;
+  const min=Math.min(w,h), thr=lowqMinRes();
+  const u=img.getAttribute("data-u"); if(u) pickQual[u]=min;   // cache short side for the ⛔ filter
+  if(min<=thr/2 && pickHideLow){ clearTimeout(_pickQualT); _pickQualT=setTimeout(()=>renderPicker(pickPage),120); return; }   // just measured a hidden one → drop it
+  if(min>=thr) return;
   const g=img.closest(".g"); if(!g||g.querySelector(".lowq")) return;
   const bad=min<=thr/2;   // at or under HALF the threshold → red (severe); otherwise yellow (mild)
   const tip=`${bad?"Very low":"Low"} quality — ${w}×${h}, short side under ${bad?Math.round(thr/2):thr}px`;
