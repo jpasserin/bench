@@ -689,6 +689,27 @@ button.boolcap{cursor:pointer;font-family:inherit}
 .ratepickrow .rpthumb img{width:100%;height:100%;object-fit:cover}
 .ratepickrow .rpthumb .ph{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:20px}
 .ratepickrow .nm{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* rate-picker suggestion grid (4 per row) */
+.ratepickgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.ratepickcell{cursor:pointer;min-width:0}
+.ratepickcell .rpgthumb{width:100%;aspect-ratio:3/4;border-radius:10px;overflow:hidden;background:#0a0c11}
+.ratepickcell .rpgthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.ratepickcell .rpgthumb .ph{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:22px}
+.ratepickcell .rpgn{font-size:11px;font-weight:600;margin-top:3px;line-height:1.15;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* personality compare page (activities instead of person photos) */
+.rcp-page{height:100%;display:flex;flex-direction:column;box-sizing:border-box;gap:6px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));overflow-y:auto}
+.rcp-block{flex:none;display:flex;flex-direction:column;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:9px 10px}
+.rcp-name{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.rcp-name .rcp-nm{font-weight:700;font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rcp-name .rcp-counts{display:flex;gap:8px;flex:none}
+.rcp-name .rcp-cnt{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+.rcp-thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.rcp-th{aspect-ratio:16/10;border-radius:8px;overflow:hidden;background:#0a0c11;cursor:pointer}
+.rcp-th img{width:100%;height:100%;object-fit:cover;display:block}
+.rcp-th .ph{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:20px}
+.rcp-tags{display:flex;flex-wrap:wrap;gap:4px}
+.rcp-tag{font-size:11px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+.rcp-page .rc-ctrls{margin-top:auto}
 
 /* activity "seen this week" bubble (above the nominees) */
 .seenrow{display:flex;flex-wrap:wrap;gap:8px}
@@ -1472,7 +1493,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "378";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "379";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2505,7 +2526,7 @@ function renderTrending(){
   const down=moved.filter(([,d])=>d<0).sort((a,b)=>a[1]-b[1]);
   const fmt=d=>Number.isInteger(d)?String(d):d.toFixed(2);
   const row=(id,d)=>{ const a=actorById(id), up=d>=0; return `<div style="text-align:center;cursor:pointer" onclick="openPerson('${id}')" title="${esc(a?a.name:'?')}">
-    <div class="vthumb" style="width:100%;aspect-ratio:3/4;border-radius:12px;position:relative">${personThumbImg(a)}<div style="position:absolute;top:4px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.68);color:${up?'var(--good)':'var(--bad)'};font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap">${up?'▲ +':'▼ '}${fmt(d)}</div></div>
+    <div class="vthumb" style="width:100%;aspect-ratio:3/4;border-radius:12px;position:relative">${personThumbImg(a)}<div style="position:absolute;bottom:4px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.68);color:${up?'var(--good)':'var(--bad)'};font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;white-space:nowrap">${up?'▲ +':'▼ '}${fmt(d)}</div></div>
     <div class="muted" style="font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a?a.name:"?")}</div></div>`; };
   const section=(arr,page,goFn)=>{ if(!arr.length) return `<div class="small muted">No changes in the last ${arrowDays()} days.</div>`;
     const pages=Math.max(1,Math.ceil(arr.length/TREND_PER)); page=Math.min(Math.max(1,page),pages);
@@ -3746,9 +3767,10 @@ function renderRateStart(){ const el=$("rateStart"); if(!el) return;
   const opp=rcHasOpponent();
   el.innerHTML=`<button class="primary" style="width:100%;padding:14px;font-size:16px" ${opp?"":"disabled style=\"width:100%;padding:14px;font-size:16px;opacity:.5\""} onclick="openRateChallenge()">⚖️ Start rating</button>`
     +(opp?"":'<div class="small muted" style="margin-top:8px;text-align:center">No one else is rated on this skill yet — rate a few people to compare.</div>'); }
-// is there at least one other rated-with-photo person to compare against on the current skill?
-function rcHasOpponent(){ if(!rateActorId||!rateSkillKey) return false;
-  return actors().some(a=>a.id!==rateActorId && actorThumb(a) && ratingOf(a.id,rateSkillKey)); }
+function rcSkillIsPers(){ const sk=(DB.settings.skills||[]).find(s=>s.key===rateSkillKey); return !!(sk&&sk.category==="personality"); }   // personality compare page shows activities, not person photos
+// is there at least one other rated person to compare against on the current skill? (needs a photo for physical skills)
+function rcHasOpponent(){ if(!rateActorId||!rateSkillKey) return false; const pers=rcSkillIsPers();
+  return actors().some(a=>a.id!==rateActorId && (pers||actorThumb(a)) && ratingOf(a.id,rateSkillKey)); }
 let rcStartValue=0;   // the candidate's rating on this skill when the compare session began — for the header delta
 function openRateChallenge(){ if(!rateActorId||!rateSkillKey||!rcHasOpponent()) return;
   const me=actorById(rateActorId); rcMePics=twoPhotosForSkill(me,rateSkillKey);   // candidate's pair is fixed for the whole session
@@ -3824,20 +3846,23 @@ function openRatePicker(){ renderRatePicker(); openOverlay("ratePickerOverlay");
   const i=$("ratePickInput"); if(i){ i.value=""; setTimeout(()=>i.focus(),40); } }
 function ratePickSearch(q){ acRender(q,"ratePickAcList",id=>{ $("ratePickInput").value=""; $("ratePickAcList").classList.remove("show"); ratePickChoose(id); }); }
 function ratePickChoose(id){ closeOverlay("ratePickerOverlay"); selectRatePerson(id); }
-function ratePickRowHTML(a,reason){ return `<div class="ratepickrow" onclick="ratePickChoose('${a.id}')">
-    <div class="rpthumb">${personThumbImg(a)}</div>
-    <div style="flex:1;min-width:0"><div class="nm">${a.country?flagFor(a.country)+" ":""}${esc(a.name)}</div><div class="small muted">${reason}</div></div></div>`; }
+function ratePickGridCell(a){ return `<div class="ratepickcell" onclick="ratePickChoose('${a.id}')" title="${esc(a.name)}">
+    <div class="rpgthumb">${personThumbImg(a)}</div>
+    <div class="rpgn">${a.country?flagFor(a.country)+" ":""}${esc(a.name)}</div></div>`; }
+// 4-per-row × 3-row grid, randomly shuffled from the union of recently-rated / pinned / need-rating / reward-score pools
 function renderRatePicker(){ const el=$("ratePickList"); if(!el) return;
   const board={}; computeBoard().forEach(r=>board[r.id]=r);
   const rewardScore=id=>((board[id]||{}).rewardsScore||(board[id]||{}).rewardCount||0);
   const seen=new Set(); if(rateActorId) seen.add(rateActorId);   // never suggest the person already selected
-  const rows=[];
-  const take=(ids,n,reason)=>{ let c=0; for(const id of ids){ if(c>=n) break; if(seen.has(id)) continue; const a=actorById(id); if(!rateCandidate(a)) continue; seen.add(id); rows.push({a,reason}); c++; } };
-  take(recentlyRatedIds(16),3,"Recently rated");
-  take(actors().filter(isPinned).sort((x,y)=>(y.pinnedAt||0)-(x.pinnedAt||0)).map(a=>a.id),3,"📌 Pinned");
-  take(actors().filter(a=>a.needRating!=null&&a.needRating!=="").sort((x,y)=>Number(y.needRating)-Number(x.needRating)).map(a=>a.id),3,"★ Highest need-rating");
-  take(actors().filter(a=>rewardScore(a.id)>0).sort((x,y)=>rewardScore(y.id)-rewardScore(x.id)).map(a=>a.id),3,"🏆 Highest reward score");
-  el.innerHTML = rows.length? rows.map(x=>ratePickRowHTML(x.a,x.reason)).join("")
+  const pool=[];
+  const add=ids=>{ for(const id of ids){ if(seen.has(id)) continue; const a=actorById(id); if(!rateCandidate(a)) continue; seen.add(id); pool.push(a); } };
+  add(recentlyRatedIds(16));
+  add(actors().filter(isPinned).map(a=>a.id));
+  add(actors().filter(a=>a.needRating!=null&&a.needRating!=="").map(a=>a.id));
+  add(actors().filter(a=>rewardScore(a.id)>0).map(a=>a.id));
+  for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=pool[i]; pool[i]=pool[j]; pool[j]=t; }   // shuffle
+  const pick=pool.slice(0,12);
+  el.innerHTML = pick.length? '<div class="ratepickgrid">'+pick.map(ratePickGridCell).join("")+'</div>'
     : '<div class="small muted">No suggestions right now — everyone is either fully rated or mid-calibration. Use the search box above.</div>';
 }
 function selectRatePerson(id){ flushRateSave(); rateActorId=id; rateList=[id]; rcUsed.clear(); rcMePics=[]; pushRateRecent(id);   // loading a person on the Rate page = "recently rated"
@@ -3854,7 +3879,7 @@ function renderRateActorPhoto(){   // centered rotating photo of the selected pe
   const a=rateActorId?actorById(rateActorId):null; const urls=a?photosForSkill(a,rateSkillKey):[];
   if(!urls.length){ box.style.display="none"; box.innerHTML=""; return; }
   box.style.display="flex";
-  box.innerHTML=rotThumb(urls,{name:a.name,personId:a.id,start:0,style:"width:46%;max-width:190px;aspect-ratio:3/4;border-radius:14px"});
+  box.innerHTML=rotThumb(urls,{name:a.name,personId:a.id,start:0,style:"width:72%;max-width:300px;aspect-ratio:3/4;border-radius:14px"});
 }
 // clear (un-rate) the current person on the current skill → back to "empty"
 function clearRating(){ if(!rateActorId||!rateSkillKey) return; flushRateSave();
@@ -3890,8 +3915,9 @@ function rcPickOpponent(){
   if(!rateActorId||!rateSkillKey) return;
   const myR=ratingOf(rateActorId,rateSkillKey);
   const anchor = myR ? myR.value : r2(rateValue);
+  const pers=rcSkillIsPers();
   let rated=actors().map(a=>{ const r=ratingOf(a.id,rateSkillKey); return r?{a,v:r.value}:null; })
-    .filter(Boolean).filter(x=>x.a.id!==rateActorId && actorThumb(x.a));   // opponents need a photo
+    .filter(Boolean).filter(x=>x.a.id!==rateActorId && (pers||actorThumb(x.a)));   // physical opponents need a photo; personality ones don't
   if(!rated.length) return;
   let pool=rated.filter(x=>!rcUsed.has(x.a.id));   // avoid re-using an opponent already compared for this person+skill
   if(!pool.length){ rcUsed.clear(); pool=rated; }   // everyone used → start over
@@ -3910,6 +3936,7 @@ function renderRateChallenge(){
   if(!rcOpp) rcPickOpponent();
   const me=actorById(rateActorId), op=rcOpp?actorById(rcOpp):null;
   if(!op){ box.innerHTML='<div class="small muted" style="padding:20px">No one else is rated on this skill yet — rate a few people to compare.</div>'; return; }
+  if(rcSkillIsPers()){ renderRateChallengePers(box,me,op); return; }   // personality skills compare activities, not photos
   if(!rcMePics.length) rcMePics=twoPhotosForSkill(me,rateSkillKey);   // safety: candidate pair
   // one column per person, each showing up to two rotating photos stacked; the candidate (left) pair stays fixed across submits.
   // each cell is a rotThumb: tap left/right to flip photos, tap middle to open the viewer (with Browse to swap the photo).
@@ -3924,6 +3951,33 @@ function renderRateChallenge(){
       <input id="rcSlider" type="range" min="-1" max="1" step="0.1" value="${rcValue}" oninput="rcOnSlider(this.value)">
       <div style="margin-top:10px;display:flex;gap:8px"><button class="primary" style="flex:1" onclick="rcSubmit()">vs ${esc(op.name)}</button><button class="sm" style="flex:0 0 auto" onclick="rcRandom()">⏭ Skip</button></div>
     </div>`;
+}
+// personality compare page: each person shown by name + activity/nomination/reward counts, three activity
+// thumbnails, and the union of their activity tags. The slider + Approve/Skip drive the same one-sided Elo.
+let rcpBoard=null;
+function renderRateChallengePers(box,me,op){
+  rcpBoard={}; computeBoard().forEach(r=>rcpBoard[r.id]=r);
+  box.innerHTML=`<div class="rcp-page">${rcpBlock(me)}${rcpBlock(op)}
+    <div class="rc-ctrls">
+      <input id="rcSlider" type="range" min="-1" max="1" step="0.1" value="${rcValue}" oninput="rcOnSlider(this.value)">
+      <div style="margin-top:10px;display:flex;gap:8px"><button class="primary" style="flex:1" onclick="rcSubmit()">✓ Approve</button><button class="sm" style="flex:0 0 auto" onclick="rcRandom()">⏭ Skip</button></div>
+    </div></div>`;
+}
+function rcpBlock(p){
+  const b=(rcpBoard&&rcpBoard[p.id])||{};
+  const acts=personActivities(p.id);
+  const withPhoto=acts.filter(e=>eventThumb(e)), rest=acts.filter(e=>!eventThumb(e));   // prefer activities that have a photo
+  const three=withPhoto.concat(rest).slice(0,3);
+  const thumbs=three.length? three.map(e=>`<div class="rcp-th" onclick="openActivity('${e.id}')">${evThumbInner(e)}</div>`).join("")
+    : '<div class="small muted" style="grid-column:1/-1">No activities yet.</div>';
+  const seenT=new Set(), tagList=[]; acts.forEach(e=>(e.tags||[]).forEach(t=>{ if(t&&!seenT.has(t)){ seenT.add(t); tagList.push(t); } }));
+  const tags=tagList.slice(0,14).map(t=>`<span class="rcp-tag">${esc(t)}</span>`).join("");
+  const counts=`<span class="rcp-cnt" title="Activities">🎬 ${b.eventCount||acts.length}</span><span class="rcp-cnt" title="Nominations">🎖️ ${b.nominationCount||0}</span><span class="rcp-cnt" title="Wins">🏆 ${b.rewardCount||0}</span>`;
+  return `<div class="rcp-block">
+    <div class="rcp-name"><span class="rcp-nm">${esc(p.name)}</span><span class="rcp-counts">${counts}</span></div>
+    <div class="rcp-thumbs">${thumbs}</div>
+    ${tags?`<div class="rcp-tags">${tags}</div>`:""}
+  </div>`;
 }
 // capture the photos currently shown in the candidate (left) column so they persist across a submit / re-render
 function rcCaptureMe(){ const colEl=$("rcColMe"); if(!colEl) return;
