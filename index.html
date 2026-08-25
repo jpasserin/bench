@@ -278,10 +278,9 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .grtools .grbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .grtools .grbtn.on.fav{background:var(--gold);color:#111;border-color:var(--gold)}
 .grtools .grbtn.on.del{background:var(--bad);color:#111;border-color:var(--bad)}
-.grgallery .g.fav{outline:3px solid var(--gold);outline-offset:-3px}
-.grgallery .g.tagged{outline:3px solid #fff;outline-offset:-3px}            /* photo has ≥1 tag → crisp white contour (replaces the fav outline on this board) */
-.grgallery .g.tagged.tagactive{outline-color:var(--accent)}                 /* …turns blue when it carries the armed tag */
-.grgallery.favmode .g.fav{outline:3px solid var(--gold);outline-offset:-3px} /* ⭐ tool armed → gold favorite contour wins over the tag contour */
+.grgallery .g.fav{outline:3px solid var(--gold);outline-offset:-3px}                 /* favorite → yellow contour (default) */
+.grgallery .g.tagged:not(.fav){outline:3px solid #fff;outline-offset:-3px}          /* tagged, non-favorite → white contour */
+.grgallery .g.tagged.tagactive{outline:3px solid var(--accent);outline-offset:-3px} /* carries the currently-selected tag → blue (wins over yellow/white) */
 .grgallery .g.del img{filter:grayscale(1) brightness(.45)}
 .grgallery .g .grdot{position:absolute;top:5px;left:5px;width:13px;height:13px;border-radius:50%;background:#777;border:1.5px solid rgba(0,0,0,.55);z-index:3;box-shadow:0 0 3px rgba(0,0,0,.6)}
 .grgallery .g .grdot.q-good{background:var(--good)}
@@ -1502,7 +1501,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "384";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "385";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7346,8 +7345,7 @@ function grRenderTools(){ const t=grTarget(); if(!t) return; let html="";
 function grRenderStage(){ const t=grTarget(); const stage=$("grGallery"); if(!stage) return;
   if(!t){ stage.innerHTML=""; return; }
   const urls=grViewUrls(), fav=new Set(t.profilePics||[]);
-  const favMode = grGrid===1 ? fav.has(urls[0]) : grMode==="fav";   // ⭐ tool armed (grid) or the shown photo is a favorite (single)
-  stage.className="gallery grgallery g"+grGrid+(favMode?" favmode":"");
+  stage.className="gallery grgallery g"+grGrid;
   stage.innerHTML = urls.map(u=>{ const isFav=fav.has(u), isDel=grDel.has(u);
     const ptags=grKind!=="activity"?photoTagsOf(t,u):[];
     const isTagged=ptags.length>0, isTagActive=isTagged && grMode && ptags.indexOf(grMode)>=0;   // carries the currently-armed attribute
