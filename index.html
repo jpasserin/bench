@@ -279,8 +279,8 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .grtools .grbtn.on.fav{background:var(--gold);color:#111;border-color:var(--gold)}
 .grtools .grbtn.on.del{background:var(--bad);color:#111;border-color:var(--bad)}
 .grgallery .g.fav{outline:3px solid var(--gold);outline-offset:-3px}
-.grgallery .g.tagged::after{content:"";position:absolute;inset:0;border:2px solid #fff;border-radius:inherit;pointer-events:none;z-index:2}   /* photo has ≥1 tag → white contour (over the image; fav's gold outline still shows) */
-.grgallery .g.tagged.tagactive::after{border-color:var(--accent)}           /* …turns blue when it carries the armed tag */
+.grgallery .g.tagged{outline:3px solid #fff;outline-offset:-3px}            /* photo has ≥1 tag → crisp white contour (replaces the fav outline on this board) */
+.grgallery .g.tagged.tagactive{outline-color:var(--accent)}                 /* …turns blue when it carries the armed tag */
 .grgallery .g.del img{filter:grayscale(1) brightness(.45)}
 .grgallery .g .grdot{position:absolute;top:5px;left:5px;width:13px;height:13px;border-radius:50%;background:#777;border:1.5px solid rgba(0,0,0,.55);z-index:3;box-shadow:0 0 3px rgba(0,0,0,.6)}
 .grgallery .g .grdot.q-good{background:var(--good)}
@@ -1501,7 +1501,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "382";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "383";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
