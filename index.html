@@ -705,17 +705,17 @@ button.boolcap{cursor:pointer;font-family:inherit}
 /* personality compare page (activities instead of person photos) */
 .rcp-page{height:100%;display:flex;flex-direction:column;box-sizing:border-box;gap:6px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));overflow-y:auto}
 .rcp-block{flex:none;display:flex;flex-direction:column;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:9px 10px}
-.rcp-name{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.rcp-name .rcp-nm{font-weight:700;font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rcp-name .rcp-counts{display:flex;gap:8px;flex:none}
+.rcp-name{display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap}
+.rcp-name .rcp-nm{font-weight:700;font-size:16px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rcp-name .rcp-counts{display:flex;gap:8px;flex:none;margin-left:auto}   /* counts pinned to the right of the row */
 .rcp-name .rcp-cnt{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
-.rcp-thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.rcp-thumbs{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
 .rcp-th{aspect-ratio:16/10;border-radius:8px;overflow:hidden;background:#0a0c11;cursor:pointer}
 .rcp-th img{width:100%;height:100%;object-fit:cover;display:block}
 .rcp-th .ph{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:20px}
 .rcp-tags{display:flex;flex-wrap:wrap;gap:4px}
 .rcp-tag{font-size:11px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
-.rcp-page .rc-ctrls{margin-top:auto}
+.rcp-page .rc-ctrls{flex:none}   /* flow right after the opponent's tags (no auto top-margin — it clipped them when the page overflowed) */
 
 /* activity "seen this week" bubble (above the nominees) */
 .seenrow{display:flex;flex-wrap:wrap;gap:8px}
@@ -1501,7 +1501,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "385";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "386";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -3963,7 +3963,7 @@ function renderRateChallenge(){
       <div style="margin-top:10px;display:flex;gap:8px"><button class="primary" style="flex:1" onclick="rcSubmit()">vs ${esc(op.name)}</button><button class="sm" style="flex:0 0 auto" onclick="rcRandom()">⏭ Skip</button></div>
     </div>`;
 }
-// personality compare page: each person shown by name + activity/nomination/reward counts, three activity
+// personality compare page: each person shown by name + activity/nomination/reward counts, two activity
 // thumbnails, and the union of their activity tags. The slider + Approve/Skip drive the same one-sided Elo.
 let rcpBoard=null;
 function renderRateChallengePers(box,me,op){
@@ -3978,8 +3978,8 @@ function rcpBlock(p){
   const b=(rcpBoard&&rcpBoard[p.id])||{};
   const acts=personActivities(p.id);
   const withPhoto=acts.filter(e=>eventThumb(e)), rest=acts.filter(e=>!eventThumb(e));   // prefer activities that have a photo
-  const three=withPhoto.concat(rest).slice(0,3);
-  const thumbs=three.length? three.map(e=>`<div class="rcp-th" onclick="openActivity('${e.id}')">${evThumbInner(e)}</div>`).join("")
+  const pics=withPhoto.concat(rest).slice(0,2);
+  const thumbs=pics.length? pics.map(e=>`<div class="rcp-th" onclick="openActivity('${e.id}')">${evThumbInner(e)}</div>`).join("")
     : '<div class="small muted" style="grid-column:1/-1">No activities yet.</div>';
   const seenT=new Set(), tagList=[]; acts.forEach(e=>(e.tags||[]).forEach(t=>{ if(t&&!seenT.has(t)){ seenT.add(t); tagList.push(t); } }));
   const tags=tagList.slice(0,14).map(t=>`<span class="rcp-tag">${esc(t)}</span>`).join("");
