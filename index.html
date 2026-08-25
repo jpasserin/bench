@@ -1472,7 +1472,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "377";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "378";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -3770,11 +3770,8 @@ function renderRcHead(){ const el=$("rcHeadTitle"); if(!el) return; const a=rate
 function twoPhotos(urls){ urls=(urls||[]).filter(Boolean); if(urls.length<=1) return urls.slice(0,1);
   const i=Math.floor(Math.random()*urls.length); let j=Math.floor(Math.random()*urls.length); if(j===i) j=(j+1)%urls.length;
   return [urls[i],urls[j]]; }
-// like twoPhotos but leads with a photo tagged for skillKey (when the person has one)
-function twoPhotosForSkill(a,skillKey){ const urls=photosForSkill(a,skillKey);
-  if(urls.length<=1) return urls.slice(0,1);
-  if(skillKey && hasPhotoTag(a,skillKey)){ const rest=urls.slice(1); return [urls[0], rest[Math.floor(Math.random()*rest.length)]]; }
-  return twoPhotos(urls); }
+// two distinct photos drawn from the skill-appropriate set (only skill-tagged ones when the person has any)
+function twoPhotosForSkill(a,skillKey){ return twoPhotos(photosForSkill(a,skillKey)); }
 function rcOpenPhoto(pid,idx){ const a=actorById(pid); if(!a) return; openLightbox(a.photoURLs||[],idx,a.name,pid,"person"); }
 function applyRateValue(src){   // keep the number field in sync (unless it's the field being typed in)
   if(src!=="num" && $("rateNum")) $("rateNum").value=rateValue.toFixed(2);
@@ -4093,11 +4090,12 @@ function togglePhotoTag(personId,url,skillKey){ const a=actorById(personId); if(
   if(arr.length) a.photoTags[url]=arr; else delete a.photoTags[url];
   a.updatedAt=now(); DB.rev=Math.max(DB.rev||0,a.updatedAt); commit();
   return i<0; }   // returns true when the photo is now tagged
-// reorder a person's photos so those tagged with skillKey come first (order otherwise preserved)
+// photos to use when rating/comparing a skill: ONLY those tagged for skillKey when the person has any;
+// otherwise (no photo tagged for this skill — e.g. personality skills) fall back to the whole library.
 function photosForSkill(a,skillKey){ const urls=(a&&a.photoURLs||[]).filter(Boolean);
   if(!skillKey||!a||!a.photoTags) return urls;
-  const tagged=[], rest=[]; urls.forEach(u=>{ (photoTagsOf(a,u).indexOf(skillKey)>=0?tagged:rest).push(u); });
-  return tagged.concat(rest); }
+  const tagged=urls.filter(u=>photoTagsOf(a,u).indexOf(skillKey)>=0);
+  return tagged.length?tagged:urls; }
 function hasPhotoTag(a,skillKey){ if(!a||!a.photoTags||!skillKey) return false;
   return (a.photoURLs||[]).some(u=>photoTagsOf(a,u).indexOf(skillKey)>=0); }
 function ptPersonTagged(a){ return (a.photoURLs||[]).some(u=>photoTagsOf(a,u).length); }   // ≥1 tagged photo
