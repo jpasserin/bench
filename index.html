@@ -264,8 +264,10 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .gallery .g .gstar{position:absolute;bottom:4px;left:4px;font-size:12px;background:rgba(0,0,0,.72);border:none;border-radius:6px;color:var(--gold);padding:2px 8px;z-index:2}
 .gallery .g .lowq{position:absolute;top:4px;left:4px;font-size:12px;background:rgba(0,0,0,.72);border-radius:6px;padding:1px 5px;z-index:2;line-height:1.4}
 .gallery .g .lowq.lowq-bad{background:rgba(200,30,40,.9)}
-.pickhidelow{color:var(--bad);border-color:var(--bad)}
-.pickhidelow.on{background:var(--bad);color:#fff;border-color:var(--bad)}
+.pickhidevlow{color:var(--bad);border-color:var(--bad)}
+.pickhidevlow.on{background:var(--bad);color:#fff;border-color:var(--bad)}
+.pickhidelowq{color:var(--gold);border-color:var(--gold)}
+.pickhidelowq.on{background:var(--gold);color:#111;border-color:var(--gold)}
 
 /* ---- Gallery review page (bulk favorite / delete / tag) ---- */
 .grtools{display:flex;flex-wrap:nowrap;gap:6px;margin:2px 0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -277,8 +279,8 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .grtools .grbtn.on.fav{background:var(--gold);color:#111;border-color:var(--gold)}
 .grtools .grbtn.on.del{background:var(--bad);color:#111;border-color:var(--bad)}
 .grgallery .g.fav{outline:3px solid var(--gold);outline-offset:-3px}
-.grgallery .g.tagged{box-shadow:inset 0 0 0 2px #fff}                       /* photo has ≥1 tag → white contour */
-.grgallery .g.tagged.tagactive{box-shadow:inset 0 0 0 2px var(--accent)}    /* …turns blue when it carries the armed tag */
+.grgallery .g.tagged::after{content:"";position:absolute;inset:0;border:2px solid #fff;border-radius:inherit;pointer-events:none;z-index:2}   /* photo has ≥1 tag → white contour (over the image; fav's gold outline still shows) */
+.grgallery .g.tagged.tagactive::after{border-color:var(--accent)}           /* …turns blue when it carries the armed tag */
 .grgallery .g.del img{filter:grayscale(1) brightness(.45)}
 .grgallery .g .grdot{position:absolute;top:5px;left:5px;width:13px;height:13px;border-radius:50%;background:#777;border:1.5px solid rgba(0,0,0,.55);z-index:3;box-shadow:0 0 3px rgba(0,0,0,.6)}
 .grgallery .g .grdot.q-good{background:var(--good)}
@@ -1397,7 +1399,8 @@ button.boolcap{cursor:pointer;font-family:inherit}
       <span id="pickLoad" class="small muted" style="display:none;align-items:center;gap:6px"><span class="spin"></span> <span id="pickLoadTxt"></span></span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-      <button class="sm pickhidelow" id="pickHideLowBtn" onclick="pickToggleHideLow()" title="Hide very low-resolution images (short side under half the minimum)">⛔</button>
+      <button class="sm pickhidevlow" id="pickHideVLowBtn" onclick="pickToggleFilter('vlow')" title="Hide very low-resolution images (short side under half the minimum)">⛔</button>
+      <button class="sm pickhidelowq" id="pickHideLowQBtn" onclick="pickToggleFilter('low')" title="Hide low-quality images (short side under the minimum)">⚠️</button>
       <button class="sm" id="pickSelAllBtn" onclick="pickSelectAll()">Select All</button>
     </div>
   </div>
@@ -1498,7 +1501,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "381";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "382";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1541,7 +1544,8 @@ let editingActorId = null;    // actor open in editor overlay
 let pickerTarget = null;      // actorId receiving picked photos
 let pickImages = [], pickSel = new Set(), pickPage = 1;
 let pickQual = {};          // scraper: url -> short-side px (min(w,h)), filled as images load
-let pickHideLow = false;    // scraper toggle: hide images at/under HALF the min-res threshold (the ⛔ "very low" ones)
+let pickHideVeryLow = localStorage.getItem("bench_pick_hide_vlow")==="1";   // ⛔ hide short-side ≤ half the min-res threshold
+let pickHideLow     = localStorage.getItem("bench_pick_hide_low")==="1";    // ⚠️ hide short-side between half-min and min (mild low quality)
 let pickScrapeSeq = 0;        // bumped on every openPicker/close → a running scrape loop bails when its token goes stale
 let boardSort = {key:"globalScore", dir:-1};
 
@@ -7042,7 +7046,8 @@ function clearData(){
 
 /* ============================ PHOTO PICKER ============================ */
 function openPicker(){ if(privBlock()) return; pickScrapeSeq++;   // invalidate any scrape loop still running from a previous session
-  pickerTarget=curPhotoDraft; pickImages=[]; pickSel=new Set(); pickPage=1; pickQual={}; pickHideLow=false; const hb=$("pickHideLowBtn"); if(hb) hb.classList.remove("on"); if(pickSeq)pickSeq.cancel=true; pickSeq=null; $("pickGallery").innerHTML=""; $("pickPager").innerHTML=""; $("pickMsg").textContent=""; pickLoad(null); updateSeqBtn(); openOverlay("pickerOverlay"); }
+  pickerTarget=curPhotoDraft; pickImages=[]; pickSel=new Set(); pickPage=1; pickQual={}; pickReflectFilterButtons();   // filters are remembered across sessions; only the per-URL measurements reset
+  if(pickSeq)pickSeq.cancel=true; pickSeq=null; $("pickGallery").innerHTML=""; $("pickPager").innerHTML=""; $("pickMsg").textContent=""; pickLoad(null); updateSeqBtn(); openOverlay("pickerOverlay"); }
 function closePicker(){ if(pickSel&&pickSel.size) confirmDialog(`Discard ${pickSel.size} selected photo(s)?`, ()=>closeOverlay("pickerOverlay"), "Discard"); else closeOverlay("pickerOverlay"); }
 // spinner + optional "n / total" progress cue in the picker toolbar; pass null to hide it
 function pickLoad(txt){ const el=$("pickLoad"); if(!el) return; if(txt==null){ el.style.display="none"; } else { $("pickLoadTxt").textContent=txt; el.style.display="inline-flex"; } }
@@ -7113,31 +7118,41 @@ async function findImages(){
     renderPicker(1);
   }catch(e){ $("pickMsg").textContent="Error: "+e.message; }
 }
-// the ⛔ toggle drops images whose short side is at or under half the min-res threshold (the "very low" set)
-function pickIsVeryLow(u){ const px=pickQual[u]; return px!=null && px<=lowqMinRes()/2; }
-function pickVisibleImages(){ return pickHideLow ? pickImages.filter(u=>!pickIsVeryLow(u)) : pickImages; }
+// classify a measured image against the min-res threshold: "vlow" (≤ half), "low" (half..min), "ok" (≥ min)
+function pickTier(u){ const px=pickQual[u]; if(px==null) return null; const thr=lowqMinRes(); if(px<=thr/2) return "vlow"; if(px<thr) return "low"; return "ok"; }
+function pickAnyFilter(){ return pickHideVeryLow||pickHideLow; }
+function pickHidden(u){ const t=pickTier(u); return (t==="vlow"&&pickHideVeryLow)||(t==="low"&&pickHideLow); }   // unmeasured (null) always shows
+function pickVisibleImages(){ return pickAnyFilter() ? pickImages.filter(u=>!pickHidden(u)) : pickImages; }
 function renderPicker(page){
   const vis=pickVisibleImages();
   const per=12, pages=Math.max(1,Math.ceil(vis.length/per)); page=Math.min(Math.max(1,page),pages); pickPage=page;
   const slice=vis.slice((page-1)*per,page*per);
   let html=slice.map(u=>`<div class="g ${pickSel.has(u)?"sel":""}" onclick="togglePick('${esc(u)}')">
     <img src="${esc(u)}" data-u="${esc(u)}" referrerpolicy="no-referrer" loading="lazy" onload="markPickQuality(this)"></div>`).join("");
-  if(!html) html=pickHideLow&&pickImages.length?'<div class="small muted" style="padding:16px">All images on this page are very low-resolution and hidden. Tap ⛔ to show them.</div>':"";
+  if(!html) html=pickAnyFilter()&&pickImages.length?'<div class="small muted" style="padding:16px">All images on this page are hidden by the quality filters. Tap ⛔ / ⚠️ to show them.</div>':"";
   $("pickGallery").innerHTML=html;
   buildPager("pickPager",page,pages,"renderPicker");
   $("pickAddBtn").textContent=`Add selected (${pickSel.size})`;
+  pickMaybeMeasureAll();   // remembered filter on a fresh scrape → measure off-page images so hidden ones don't leak in
 }
-// measure every scraped image off-screen so the ⛔ filter is complete (not just the current page)
-let _pickQualT=null;
+// measure every scraped image off-screen so the filters are complete (not just the current page)
+let _pickQualT=null, _pickQualRunning=false;
 function pickEnsureQuality(cb){ const urls=pickImages.filter(u=>pickQual[u]==null);
   if(!urls.length){ cb&&cb(); return; }
   let left=urls.length; urls.forEach(u=>{ let done=false; const img=new Image(); img.referrerPolicy="no-referrer";
     const fin=px=>{ if(done) return; done=true; pickQual[u]=px; if(--left<=0) cb&&cb(); };
     img.onload=()=>fin(Math.min(img.naturalWidth||1,img.naturalHeight||1)); img.onerror=()=>fin(0);
     setTimeout(()=>fin(0),10000); img.src=u; }); }
-function pickToggleHideLow(){ pickHideLow=!pickHideLow;
-  const b=$("pickHideLowBtn"); if(b) b.classList.toggle("on",pickHideLow);
-  if(pickHideLow){ pickEnsureQuality(()=>{ if(pickHideLow) renderPicker(1); }); renderPicker(1); }   // re-render now with what's measured, again when the rest lands
+function pickMaybeMeasureAll(){ if(!pickAnyFilter()||_pickQualRunning) return;
+  if(!pickImages.some(u=>pickQual[u]==null)) return;   // all measured → nothing to do (prevents a re-render loop)
+  _pickQualRunning=true; pickEnsureQuality(()=>{ _pickQualRunning=false; renderPicker(pickPage); }); }
+function pickReflectFilterButtons(){ const a=$("pickHideVLowBtn"); if(a) a.classList.toggle("on",pickHideVeryLow);
+  const b=$("pickHideLowQBtn"); if(b) b.classList.toggle("on",pickHideLow); }
+function pickToggleFilter(kind){
+  if(kind==="vlow"){ pickHideVeryLow=!pickHideVeryLow; try{ localStorage.setItem("bench_pick_hide_vlow",pickHideVeryLow?"1":"0"); }catch(e){} }
+  else{ pickHideLow=!pickHideLow; try{ localStorage.setItem("bench_pick_hide_low",pickHideLow?"1":"0"); }catch(e){} }
+  pickReflectFilterButtons();
+  if(pickAnyFilter()){ pickEnsureQuality(()=>renderPicker(1)); renderPicker(1); }   // re-render now with what's measured, again when the rest lands
   else renderPicker(pickPage); }
 // An image whose SHORT side is smaller than the threshold will upscale (look soft) when shown
 // full-width → flag it as low quality in the picker. Threshold is a setting (Settings → Photos);
@@ -7145,15 +7160,15 @@ function pickToggleHideLow(){ pickHideLow=!pickHideLow;
 function lowqMinRes(){ const v=Number(DB.settings&&DB.settings.lowqMinRes); return (!isNaN(v)&&v>0)?Math.round(v):720; }
 function markPickQuality(img){ const w=img.naturalWidth,h=img.naturalHeight; if(!w||!h) return;
   const min=Math.min(w,h), thr=lowqMinRes();
-  const u=img.getAttribute("data-u"); if(u) pickQual[u]=min;   // cache short side for the ⛔ filter
-  if(min<=thr/2 && pickHideLow){ clearTimeout(_pickQualT); _pickQualT=setTimeout(()=>renderPicker(pickPage),120); return; }   // just measured a hidden one → drop it
+  const u=img.getAttribute("data-u"); if(u) pickQual[u]=min;   // cache short side for the quality filters
+  if(u && pickHidden(u)){ clearTimeout(_pickQualT); _pickQualT=setTimeout(()=>renderPicker(pickPage),120); return; }   // just measured a now-hidden one → drop it
   if(min>=thr) return;
   const g=img.closest(".g"); if(!g||g.querySelector(".lowq")) return;
   const bad=min<=thr/2;   // at or under HALF the threshold → red (severe); otherwise yellow (mild)
   const tip=`${bad?"Very low":"Low"} quality — ${w}×${h}, short side under ${bad?Math.round(thr/2):thr}px`;
   g.insertAdjacentHTML("beforeend",`<div class="lowq${bad?" lowq-bad":""}" title="${tip}">${bad?"⛔":"⚠️"}</div>`); }
 function togglePick(u){ pickSel.has(u)?pickSel.delete(u):pickSel.add(u); renderPicker(pickPage); }
-function pickSelectAll(){ const per=12, slice=pickImages.slice((pickPage-1)*per,pickPage*per);   // toggle all images on the current page
+function pickSelectAll(){ const per=12, vis=pickVisibleImages(), slice=vis.slice((pickPage-1)*per,pickPage*per);   // toggle only the VISIBLE images on the current page (never the hidden low-res ones)
   const allSel=slice.length&&slice.every(u=>pickSel.has(u));
   slice.forEach(u=>{ if(allSel) pickSel.delete(u); else pickSel.add(u); }); renderPicker(pickPage); }
 function setAsProfileFromPicker(u){ const a=pickerTarget; if(a){ a.photoURLs=a.photoURLs||[]; const ex=a.photoURLs.indexOf(u); if(ex>=0)a.photoURLs.splice(ex,1); a.photoURLs.unshift(u); if(a===curPhotoDraft) refreshPhotoStrip(); } closeOverlay("pickerOverlay"); autoSaveDraft(); toast("Cover photo set"); }
