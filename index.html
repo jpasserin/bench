@@ -524,6 +524,8 @@ button.boolcap{cursor:pointer;font-family:inherit}
 .grid5 .nearcell{cursor:default}
 
 /* Insights: compact histogram + top-3 lists + lookup search */
+.insna{color:var(--muted);opacity:.7;font-style:italic}                 /* "no info available" — a metric not captured on a past day */
+#tab-ranking .card button.primary:disabled{opacity:.35;cursor:not-allowed}   /* day-nav ◀▶ at the ends of the 10-day window */
 .insgroup{margin-bottom:12px}
 .insgroup h3{margin:0 0 8px}
 .minibars{display:flex;gap:3px;align-items:flex-end;overflow-x:auto;padding:8px 0 2px;min-height:56px}
@@ -1501,7 +1503,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "386";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "387";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1527,7 +1529,7 @@ const DEFAULT_SETTINGS = {
   enoughActPhotos: 12,   // an activity has "enough photos" at ≥ this many
   schemaVersion: SCHEMA_VERSION
 };
-var DB = { actors:[], ratings:[], events:[], rewards:[], history:[], studios:[], series:[], teams:[], collections:[], settings:clone(DEFAULT_SETTINGS), settingsTs:0, rateQueue:null, rateQueueTs:0, rev:0, bv:0 };   // var (not let) so it's reachable as window.DB — for debugging + the migration smoke test
+var DB = { actors:[], ratings:[], events:[], rewards:[], history:[], studios:[], series:[], teams:[], collections:[], settings:clone(DEFAULT_SETTINGS), settingsTs:0, rateQueue:null, rateQueueTs:0, snapshots:{}, snapshotsTs:0, rev:0, bv:0 };   // var (not let) so it's reachable as window.DB — for debugging + the migration smoke test
 let SYNC = { url:"", secret:"", on:false };
 // PRIVATE MODE: swap the live DB for an obfuscated deep-clone so screenshots reveal layout+data-volume but no
 // real content. _realDB holds the untouched data while private is on; all write/sync paths are hard-blocked so
@@ -1855,6 +1857,7 @@ async function load(){
   if(!DB.history) DB.history=[];
   if(!DB.studios) DB.studios=[]; if(!DB.series) DB.series=[];
   if(!DB.teams) DB.teams=[]; if(!DB.collections) DB.collections=[];
+  if(!DB.snapshots || typeof DB.snapshots!=="object") DB.snapshots={};   // daily Insights history (keyed by ISO date)
   let _fix=runMigrations(); if(runInvariants()) _fix=true; if(_fix) save();   // one-time shape upgrades + idempotent healers
   seenTs(maxTs());   // seed the logical clock from everything we've already saved, so new edits sort after it
   try{ const s=localStorage.getItem(LS_SYNC); if(s) SYNC=Object.assign(SYNC,JSON.parse(s)); }catch(e){}
@@ -2218,13 +2221,13 @@ function mergeList(local,remote){
   return Object.values(map);
 }
 function maxTs(){
-  let m=Math.max(DB.settingsTs||0, DB.rateQueueTs||0);
+  let m=Math.max(DB.settingsTs||0, DB.rateQueueTs||0, DB.snapshotsTs||0);
   ["actors","ratings","events","rewards","studios","series","teams","collections"].forEach(k=>(DB[k]||[]).forEach(r=>{ if((r.updatedAt||0)>m) m=r.updatedAt; }));
   (DB.history||[]).forEach(r=>{ if((r.ts||0)>m) m=r.ts; });
   return m;
 }
 // lightweight signature of local data — changes only when collections gain/lose rows or a record's ts advances
-function syncSig(){ return [DB.actors.length,DB.ratings.length,DB.events.length,DB.rewards.length,(DB.history||[]).length,(DB.studios||[]).length,(DB.series||[]).length,(DB.teams||[]).length,(DB.collections||[]).length,DB.settingsTs||0,DB.rateQueueTs||0,maxTs()].join("|"); }
+function syncSig(){ return [DB.actors.length,DB.ratings.length,DB.events.length,DB.rewards.length,(DB.history||[]).length,(DB.studios||[]).length,(DB.series||[]).length,(DB.teams||[]).length,(DB.collections||[]).length,DB.settingsTs||0,DB.rateQueueTs||0,DB.snapshotsTs||0,maxTs()].join("|"); }
 // local equivalent of the server's statRev (max updatedAt across data tabs + settingsTs). MUST mirror
 // statRev exactly — notably it EXCLUDES rateQueueTs (which statRev doesn't see) so the skip-gate compares
 // like-for-like. (Consequence: a remote rateQueue-only change isn't detected by the gate until the next
@@ -2270,6 +2273,12 @@ async function syncNow(force){
       DB.rateQueue=pulled.rateQueue; DB.rateQueueTs=pulled.rateQueueTs; loadRate();
       if($("peopleRateView")&&$("peopleRateView").style.display!=="none") renderRate();   // refresh the open Rate panel
     }
+    // daily Insights snapshots: union by ISO date (newer capture wins), then prune to the 10-day window.
+    // Merging per-date (not block LWW) keeps snapshots taken independently on different devices.
+    if(pulled.snapshots && typeof pulled.snapshots==="object"){
+      DB.snapshots=mergeSnapshots(DB.snapshots||{}, pulled.snapshots);
+      DB.snapshotsTs=Math.max(DB.snapshotsTs||0, pulled.snapshotsTs||0);
+    }
     runInvariants();   // heal any legacy shapes pulled from the server (categories/awards, Sheet-typed weekStart, dupe rewards) before pushing back
     applyBranding();   // app name + labels may have changed on the server
     DB.rev=maxTs(); save();
@@ -2280,9 +2289,9 @@ async function syncNow(force){
                events:force||colDirty(DB.events,pulled.events), rewards:force||colDirty(DB.rewards,pulled.rewards),
                history:force||colDirty(DB.history,pulled.history,"ts"), studios:force||colDirty(DB.studios,pulled.studios),
                series:force||colDirty(DB.series,pulled.series), teams:force||colDirty(DB.teams,pulled.teams), collections:force||colDirty(DB.collections,pulled.collections) };
-    const metaNewer=force || (DB.settingsTs||0)>(pulled.settingsTs||0) || (DB.rateQueueTs||0)>(pulled.rateQueueTs||0);
+    const metaNewer=force || (DB.settingsTs||0)>(pulled.settingsTs||0) || (DB.rateQueueTs||0)>(pulled.rateQueueTs||0) || (DB.snapshotsTs||0)>(pulled.snapshotsTs||0);
     if(dc.actors||dc.ratings||dc.events||dc.rewards||dc.history||dc.studios||dc.series||dc.teams||dc.collections||metaNewer){
-      const payload={ settings:DB.settings, settingsTs:DB.settingsTs, rateQueue:DB.rateQueue, rateQueueTs:DB.rateQueueTs };
+      const payload={ settings:DB.settings, settingsTs:DB.settingsTs, rateQueue:DB.rateQueue, rateQueueTs:DB.rateQueueTs, snapshots:DB.snapshots, snapshotsTs:DB.snapshotsTs };
       if(dc.actors)payload.actors=DB.actors; if(dc.ratings)payload.ratings=DB.ratings; if(dc.events)payload.events=DB.events;
       if(dc.rewards)payload.rewards=DB.rewards; if(dc.history)payload.history=DB.history; if(dc.studios)payload.studios=DB.studios; if(dc.series)payload.series=DB.series;
       if(dc.teams)payload.teams=DB.teams; if(dc.collections)payload.collections=DB.collections;
@@ -2296,7 +2305,7 @@ async function syncNow(force){
     // The merged data is already in DB; the next Next/close reads it fresh.
     if(changed && !grTagBusy()) rerenderActive();
   }catch(e){ setSyncState("Sync error: "+e.message,"err"); }
-  finally{ syncing=false; }
+  finally{ syncing=false; maybeSnapshotToday(); }   // once the freshest data is merged, record today's Insights snapshot (idempotent per day)
 }
 let lastSyncErr="";
 function setSyncState(t,cls){ const e=$("syncState"); if(e){ e.textContent=t; e.style.color=cls==="err"?"var(--bad)":cls==="ok"?"var(--good)":"var(--muted)"; }
@@ -5457,92 +5466,180 @@ function insPhotoTagStats(A, phys, ratedIds, thr){
   return {total,nPhoto,nRated,totalPhotos,over40,photosTagged,halfRated,allAttrRated,enoughPhoto,enoughPhotoRated,enoughTagsRated,avgPhotos:nPhoto?totalPhotos/nPhoto:0,perAttr};
 }
 
-function renderInsights(){
+/* ===== Daily Insights history (10-day) =====
+   A once-per-day snapshot of the headline Insights numbers is stored in DB.snapshots (keyed by ISO date)
+   and synced to the spreadsheet. The date navigator at the top of the Insights view walks back up to 10
+   days; past days render from their stored snapshot. A metric that wasn't captured on that day (e.g. a
+   skill/attribute added later) shows "no info available"; charts/lookups are live-only (past → grayed). */
+const INS_HIST_DAYS=10;             // today + 9 previous
+let insDayOffset=0;                 // 0 = today, negative = days back (reset to today on each app open)
+function isoDay(off){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+(off||0));
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function insDateLabel(off){ if(off===0) return "Today"; if(off===-1) return "Yesterday";
+  const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+off);
+  return d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"}); }
+function insDayNavHTML(){ const off=insDayOffset, canPrev=off>-(INS_HIST_DAYS-1), canNext=off<0;
+  return `<div class="card"><div class="spread">
+    <button class="primary" ${canPrev?"":"disabled"} onclick="insDayShift(-1)" title="Previous day" style="flex:none;padding:9px 15px;font-weight:700">&lt;</button>
+    <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px"><span style="font-weight:700;text-align:center">${esc(insDateLabel(off))}</span><button class="sm" id="insDayTodayBtn" title="Jump to today" onclick="insDayToday()" style="flex:none;padding:4px 9px">⊙</button></div>
+    <button class="primary" ${canNext?"":"disabled"} onclick="insDayShift(1)" title="Next day" style="flex:none;padding:9px 15px;font-weight:700">&gt;</button>
+  </div></div>`; }
+function insDayShift(d){ insDayOffset=Math.min(0,Math.max(-(INS_HIST_DAYS-1), insDayOffset+d)); insRerender(); }
+function insDayToday(){ insDayOffset=0; insRerender(); }
+function insRerender(){ if(insightsKind==="activity") renderActivityInsights(); else renderInsights(); }
+function insNA(){ return '<span class="insna">no info available</span>'; }
+function numOr(x){ return x==null?insNA():x; }                              // a captured number, or the grayed placeholder
+function pbarOr(label,num,den,color){ return (num==null||den==null)      // a captured progress bar, or a grayed empty one
+  ? `<div class="small muted" style="margin-top:8px">${label} · ${insNA()}</div><div class="pbar"><div style="width:0"></div></div>`
+  : progressBar(label,num,den,color); }
+
+// Headline PEOPLE stats — the single source of truth for both the live Insights render and the daily snapshot.
+function peopleInsStats(){
   const A=actors();
-  // activity / nomination / award membership — one pass each
   const actIds=new Set(); events().forEach(e=>evIds(e).forEach(id=>actIds.add(id)));
   const nomIds=new Set(), winIds=new Set();
   rewards().forEach(r=>{ if(!r.category) nomIds.add(r.actorId); else if(r.isWinner) winIds.add(r.actorId); });
-  const withDob=A.filter(hasFullDob).length,
-        withAct=A.filter(a=>actIds.has(a.id)).length, withNom=A.filter(a=>nomIds.has(a.id)).length, withWin=A.filter(a=>winIds.has(a.id)).length;
-
-  // Box 1 — People count (photo stats moved to their own group below)
-  let html=`<div class="card insgroup"><div class="spread"><h3>People</h3><b style="font-size:22px">${A.length}</b></div>
-    ${progressBar("🎂 Full DOB",withDob,A.length,"var(--accent2)")}
-    ${progressBar("🎬 ≥1 activity",withAct,A.length,"var(--good)")}
-    ${progressBar("🎖️ ≥1 nomination",withNom,A.length,"var(--gold)")}
-    ${progressBar("🏆 ≥1 award",withWin,A.length,"var(--gold)")}
-  </div>`;
-
-  // Box 2 — Ratings
   const skills=DB.settings.skills||[];
-  const nRatings=DB.ratings.filter(r=>!r.deleted).length, fully=A.filter(a=>isFullyRated(a.id)).length;
   const sums={}, cnts={}; DB.ratings.forEach(r=>{ if(r.deleted||r.value==null) return; sums[r.skillKey]=(sums[r.skillKey]||0)+r.value; cnts[r.skillKey]=(cnts[r.skillKey]||0)+1; });
-  const skillBox=s=>{ const c=cnts[s.key]||0, avg=c?sums[s.key]/c:null; return statBox(avg==null?"—":avg.toFixed(2),s.label); };
-  const skillRow=(cat,label)=>{ const ss=skills.filter(s=>(s.category||"personality")===cat); if(!ss.length) return "";
-    return `<div class="small muted" style="margin:10px 0 4px">${label}</div><div class="statgrid agegrid">${ss.map(skillBox).join("")}</div>`; };   // agegrid → 4 per row
-  html+=`<div class="card insgroup"><div class="spread"><h3>Ratings</h3><b style="font-size:22px">${nRatings}</b></div>
-    ${progressBar("⭐ Fully rated",fully,A.length,"var(--good)")}
-    ${skillRow("physical","Physical")}${skillRow("personality","Personality")}
-  </div>`;
-
-  // Box — Photos (counts + coverage). "rated" denominators use fully-rated people.
+  const skillAvg={}; skills.forEach(s=>{ const c=cnts[s.key]||0; skillAvg[s.key]= c?+(sums[s.key]/c).toFixed(2):null; });
   const physSkills=skillsByCat("physical");
   const ratedIds=new Set(A.filter(a=>isFullyRated(a.id)).map(a=>a.id));
   const pt=insPhotoTagStats(A, physSkills, ratedIds, {photos:enoughPhotosN(), tags:enoughTagsN()});
+  const perAttr={}; physSkills.forEach(s=>{ perAttr[s.key]=pt.perAttr[s.key]||0; });
+  const cCount=insCounts(A,a=>resolveCountry(a.country||"")).length;
+  const sCount=insCounts(A.filter(a=>resolveCountry(a.country||"")===US_NAME),a=>resolveState(a.state||"")).length;
+  return {
+    people:A.length,
+    dob:A.filter(hasFullDob).length, act:A.filter(a=>actIds.has(a.id)).length,
+    nom:A.filter(a=>nomIds.has(a.id)).length, win:A.filter(a=>winIds.has(a.id)).length,
+    nRatings:DB.ratings.filter(r=>!r.deleted).length, fully:A.filter(a=>isFullyRated(a.id)).length, skillAvg,
+    photos:{ totalPhotos:pt.totalPhotos, photosTagged:pt.photosTagged, avgPhotos:pt.avgPhotos, perAttr,
+             nPhoto:pt.nPhoto, total:pt.total, enoughPhoto:pt.enoughPhoto, nRated:pt.nRated,
+             enoughPhotoRated:pt.enoughPhotoRated, enoughTagsRated:pt.enoughTagsRated },
+    countryCount:cCount, stateCount:sCount,
+    age:{ now:avgAgeStr(A)||"—", careerStart:avgCareerAge(A,"careerStart"), careerEnd:avgCareerAge(A,"careerEnd"), inActivities:avgActivityAge() }
+  };
+}
+// Headline ACTIVITY stats — likewise shared by the live render and the snapshot.
+function activityInsStats(){
+  const E=events();
+  const totalPart=E.reduce((s,e)=>s+evIds(e).length,0);
+  return {
+    activities:E.length, studios:insCounts(E,e=>evStudioName(e)).length, series:insCounts(E,e=>evSeriesName(e)).length,
+    avgPpl:E.length?(totalPart/E.length).toFixed(2):"—",
+    withPhotos:E.filter(e=>e.photoURLs&&e.photoURLs.length).length,
+    withFav:E.filter(e=>(e.links||[]).some(l=>l.fav)).length,
+    withDate:E.filter(hasFullDate).length
+  };
+}
+// Capture today's snapshot once per day (idempotent). Called after each sync merge + on offline boot.
+function maybeSnapshotToday(){
+  if(PRIVATE) return;                                                        // never snapshot obfuscated data
+  if(!(DB.actors&&DB.actors.length)&&!(DB.events&&DB.events.length)) return; // nothing worth recording yet
+  DB.snapshots=DB.snapshots||{}; const today=isoDay(0);
+  if(DB.snapshots[today]) return;                                           // already have today's
+  DB.snapshots[today]={ at:now(), people:peopleInsStats(), activity:activityInsStats() };
+  pruneSnapshots(); DB.snapshotsTs=now(); DB.rev=Math.max(DB.rev||0,DB.snapshotsTs);
+  save(); scheduleSync();
+  if(currentTab()==="ranking"&&rankSub==="insights"&&insDayOffset===0) insRerender();   // reflect a fresh capture if the page is open
+}
+function pruneSnapshots(){ const keys=Object.keys(DB.snapshots||{}).sort(); while(keys.length>INS_HIST_DAYS) delete DB.snapshots[keys.shift()]; }   // ISO dates sort chronologically → drop the oldest
+function mergeSnapshots(local,remote){ const out=Object.assign({},local||{});
+  for(const d in (remote||{})){ const r=remote[d], l=out[d]; if(!l || (r&&(r.at||0)>(l.at||0))) out[d]=r; }
+  const keys=Object.keys(out).sort(); while(keys.length>INS_HIST_DAYS) delete out[keys.shift()]; return out; }
+
+function renderInsights(){
+  const off=insDayOffset, live=off===0;
+  let S=null, missSnap=false;
+  if(live) S=peopleInsStats();
+  else { const snap=(DB.snapshots||{})[isoDay(off)]; S=(snap&&snap.people)||null; missSnap=!S; }
+  let html=insDayNavHTML();
+  if(missSnap){ $("insightsBody").innerHTML=html+`<div class="card small muted" style="text-align:center;padding:22px">No snapshot was recorded for ${esc(insDateLabel(off))}.</div>`; return; }
+
+  // Box 1 — People count
+  html+=`<div class="card insgroup"><div class="spread"><h3>People</h3><b style="font-size:22px">${numOr(S.people)}</b></div>
+    ${pbarOr("🎂 Full DOB",S.dob,S.people,"var(--accent2)")}
+    ${pbarOr("🎬 ≥1 activity",S.act,S.people,"var(--good)")}
+    ${pbarOr("🎖️ ≥1 nomination",S.nom,S.people,"var(--gold)")}
+    ${pbarOr("🏆 ≥1 award",S.win,S.people,"var(--gold)")}
+  </div>`;
+
+  // Box 2 — Ratings (per-skill average grayed when the skill wasn't captured that day)
+  const skills=DB.settings.skills||[];
+  const skillBox=s=>{ const avg=S.skillAvg?S.skillAvg[s.key]:undefined; return statBox(avg===undefined?insNA():(avg==null?"—":Number(avg).toFixed(2)),s.label); };
+  const skillRow=(cat,label)=>{ const ss=skills.filter(s=>(s.category||"personality")===cat); if(!ss.length) return "";
+    return `<div class="small muted" style="margin:10px 0 4px">${label}</div><div class="statgrid agegrid">${ss.map(skillBox).join("")}</div>`; };   // agegrid → 4 per row
+  html+=`<div class="card insgroup"><div class="spread"><h3>Ratings</h3><b style="font-size:22px">${numOr(S.nRatings)}</b></div>
+    ${pbarOr("⭐ Fully rated",S.fully,S.people,"var(--good)")}
+    ${skillRow("physical","Physical")}${skillRow("personality","Personality")}
+  </div>`;
+
+  // Box — Photos (counts + coverage)
+  const physSkills=skillsByCat("physical"), P=S.photos||{};
+  const perAttrBox=s=>{ const v=P.perAttr?P.perAttr[s.key]:undefined; return statBox(v===undefined?insNA():v,s.label); };
   html+=`<div class="card insgroup"><h3>Photos</h3>
     <div class="statgrid agegrid">
-      ${statBox(pt.totalPhotos,"Photos")}
-      ${statBox(pt.photosTagged,"Tagged")}
-      ${statBox(pt.avgPhotos?pt.avgPhotos.toFixed(1):"—","Avg / person")}
+      ${statBox(numOr(P.totalPhotos),"Photos")}
+      ${statBox(numOr(P.photosTagged),"Tagged")}
+      ${statBox(P.avgPhotos==null?insNA():P.avgPhotos.toFixed(1),"Avg / person")}
     </div>
-    ${physSkills.length?`<div class="small muted" style="margin:10px 0 4px">Photos per attribute</div><div class="statgrid agegrid">${physSkills.map(s=>statBox(pt.perAttr[s.key]||0,s.label)).join("")}</div>`:""}
-    ${progressBar("📷 Have photos",pt.nPhoto,pt.total)}
-    ${progressBar(`📸 Enough photos (of those with photos)`,pt.enoughPhoto,pt.nPhoto,"var(--accent2)")}
-    ${progressBar(`📸 Enough photos (rated)`,pt.enoughPhotoRated,pt.nRated,"var(--good)")}
-    ${progressBar(`🏷️ Enough tags · all attributes (rated)`,pt.enoughTagsRated,pt.nRated,"var(--gold)")}
-    ${progressBar("🏷️ Photos tagged",pt.photosTagged,pt.totalPhotos,"var(--gold)")}
+    ${physSkills.length?`<div class="small muted" style="margin:10px 0 4px">Photos per attribute</div><div class="statgrid agegrid">${physSkills.map(perAttrBox).join("")}</div>`:""}
+    ${pbarOr("📷 Have photos",P.nPhoto,P.total)}
+    ${pbarOr(`📸 Enough photos (of those with photos)`,P.enoughPhoto,P.nPhoto,"var(--accent2)")}
+    ${pbarOr(`📸 Enough photos (rated)`,P.enoughPhotoRated,P.nRated,"var(--good)")}
+    ${pbarOr(`🏷️ Enough tags · all attributes (rated)`,P.enoughTagsRated,P.nRated,"var(--gold)")}
+    ${pbarOr("🏷️ Photos tagged",P.photosTagged,P.totalPhotos,"var(--gold)")}
   </div>`;
 
-  // Box 3 — Country + US state (with lookup)
-  const cPairs=insCounts(A,a=>resolveCountry(a.country||""));
-  const sPairs=insCounts(A.filter(a=>resolveCountry(a.country||"")===US_NAME),a=>resolveState(a.state||""));
-  _insData.country=cPairs; _insData.state=sPairs;
-  html+=`<div class="card insgroup"><div class="spread"><h3>Country</h3><b style="font-size:22px">${cPairs.length}</b></div>
-    <div class="instop">${insTop(cPairs,3,true)}</div>
-    <input class="ins-search" placeholder="Look up a country…" oninput="insSearch('country',this.value)"><div class="ins-out small" id="ins_country_out"></div>
-    <div class="small muted" style="margin-top:12px">US states <span class="muted">(${sPairs.length})</span></div>
-    <div class="instop">${insTop(sPairs,3,false)}</div>
-    <input class="ins-search" placeholder="Look up a state…" oninput="insSearch('state',this.value)"><div class="ins-out small" id="ins_state_out"></div>
-  </div>`;
+  // Box 3 — Country + US state. Top lists & lookup are live-only (no per-name history is stored).
+  if(live){
+    const A=actors();
+    const cPairs=insCounts(A,a=>resolveCountry(a.country||""));
+    const sPairs=insCounts(A.filter(a=>resolveCountry(a.country||"")===US_NAME),a=>resolveState(a.state||""));
+    _insData.country=cPairs; _insData.state=sPairs;
+    html+=`<div class="card insgroup"><div class="spread"><h3>Country</h3><b style="font-size:22px">${cPairs.length}</b></div>
+      <div class="instop">${insTop(cPairs,3,true)}</div>
+      <input class="ins-search" placeholder="Look up a country…" oninput="insSearch('country',this.value)"><div class="ins-out small" id="ins_country_out"></div>
+      <div class="small muted" style="margin-top:12px">US states <span class="muted">(${sPairs.length})</span></div>
+      <div class="instop">${insTop(sPairs,3,false)}</div>
+      <input class="ins-search" placeholder="Look up a state…" oninput="insSearch('state',this.value)"><div class="ins-out small" id="ins_state_out"></div>
+    </div>`;
+  } else {
+    html+=`<div class="card insgroup"><div class="spread"><h3>Country</h3><b style="font-size:22px">${numOr(S.countryCount)}</b></div>
+      <div class="small muted" style="margin-top:6px">Top list &amp; lookup — ${insNA()}</div>
+      <div class="spread" style="margin-top:12px"><span class="small muted">US states</span><b>${numOr(S.stateCount)}</b></div>
+    </div>`;
+  }
 
-  // Box 4 — Age
+  // Box 4 — Age (distribution histograms are live-only)
+  const G=S.age||{};
   html+=`<div class="card insgroup"><h3>Age</h3>
     <div class="statgrid agegrid">
-      ${statBox(avgAgeStr(A)||"—","Now")}
-      ${statBox(avgCareerAge(A,"careerStart"),"Career start")}
-      ${statBox(avgCareerAge(A,"careerEnd"),"Career end")}
-      ${statBox(avgActivityAge(),"In activities")}
-    </div>
-    <div class="small muted" style="margin-top:12px">Distribution</div>
-    ${miniBars(insAgeBuckets(A,false))}
-    <div class="small muted" style="margin-top:12px">In activities</div>
-    ${miniBars(insActivityAgeBuckets())}
-  </div>`;
+      ${statBox(numOr(G.now),"Now")}
+      ${statBox(numOr(G.careerStart),"Career start")}
+      ${statBox(numOr(G.careerEnd),"Career end")}
+      ${statBox(numOr(G.inActivities),"In activities")}
+    </div>`;
+  if(live){ const A=actors();
+    html+=`<div class="small muted" style="margin-top:12px">Distribution</div>${miniBars(insAgeBuckets(A,false))}
+      <div class="small muted" style="margin-top:12px">In activities</div>${miniBars(insActivityAgeBuckets())}`;
+  } else html+=`<div class="small muted" style="margin-top:12px">Distribution — ${insNA()}</div>`;
+  html+=`</div>`;
 
-  // extra collapsible charts: opted-in custom attributes, then hair / eye
-  const charts=[];
-  (DB.settings.attributes||[]).filter(at=>at.chart).forEach(at=>{
-    const counts={}; A.forEach(a=>{ let v=(a.attrs||{})[at.key]; if(v==null||v==="") return; (Array.isArray(v)?v:[v]).forEach(x=>{ x=String(x).trim(); if(x) counts[x]=(counts[x]||0)+1; }); });
-    const items=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v}));
-    if(items.length) charts.push(insChart("attr:"+at.key, "By "+at.label, items, "bar"));
-  });
-  const hair={}, eye={};
-  A.forEach(a=>{ (a.hairColor||[]).forEach(c=>{ c=String(c).trim(); if(c) hair[c]=(hair[c]||0)+1; });
-                 (a.eyeColor||[]).forEach(c=>{ c=String(c).trim(); if(c) eye[c]=(eye[c]||0)+1; }); });
-  charts.push(insChart("hair","Hair color", Object.entries(hair).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v})), "pie"));
-  charts.push(insChart("eye","Eye color", Object.entries(eye).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v})), "pie"));
-  const ch=charts.filter(Boolean); if(ch.length) html += `<div class="inscharts">`+ch.join("")+`</div>`;
+  // extra collapsible charts (live only): opted-in custom attributes, then hair / eye
+  if(live){ const A=actors(); const charts=[];
+    (DB.settings.attributes||[]).filter(at=>at.chart).forEach(at=>{
+      const counts={}; A.forEach(a=>{ let v=(a.attrs||{})[at.key]; if(v==null||v==="") return; (Array.isArray(v)?v:[v]).forEach(x=>{ x=String(x).trim(); if(x) counts[x]=(counts[x]||0)+1; }); });
+      const items=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v}));
+      if(items.length) charts.push(insChart("attr:"+at.key, "By "+at.label, items, "bar"));
+    });
+    const hair={}, eye={};
+    A.forEach(a=>{ (a.hairColor||[]).forEach(c=>{ c=String(c).trim(); if(c) hair[c]=(hair[c]||0)+1; });
+                   (a.eyeColor||[]).forEach(c=>{ c=String(c).trim(); if(c) eye[c]=(eye[c]||0)+1; }); });
+    charts.push(insChart("hair","Hair color", Object.entries(hair).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v})), "pie"));
+    charts.push(insChart("eye","Eye color", Object.entries(eye).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v})), "pie"));
+    const ch=charts.filter(Boolean); if(ch.length) html += `<div class="inscharts">`+ch.join("")+`</div>`;
+  }
   $("insightsBody").innerHTML=html;
 }
 
@@ -5624,7 +5721,7 @@ function setEventRecentSub(s){ eventRecentSub=s; subSet("bench_sub_evrecent",s);
 }
 /* ===== Ranking tab: now just Insights (the Leaderboard moved to the Awards page) ===== */
 let rankSub="insights", insightsKind=subGet("bench_ins_kind",["people","activity"],"people");
-function setRankSub(s){ setInsightsKind(insightsKind); }   // kept as a thin shim; the tab only shows Insights now
+function setRankSub(s){ insDayOffset=0; setInsightsKind(insightsKind); }   // entering the tab always opens on today; kept as a thin shim (the tab only shows Insights now)
 function setInsightsKind(k){ insightsKind=k; subSet("bench_ins_kind",k);
   $("ins_people").classList.toggle("on",k==="people"); $("ins_activity").classList.toggle("on",k==="activity");
   $("insightsBody").style.display = k==="people"?"block":"none";
@@ -5795,48 +5892,55 @@ function activityGridByDate(list,field){ if(!list.length) return '<div class="ca
 function recentActivitiesHTML(){ return activityGridByDate(events().slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,30),"createdAt"); }
 function recentUpdatedActivitiesHTML(){ return activityGridByDate(events().slice().sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,30),"updatedAt"); }
 function renderActivityInsights(){
-  const E=events();
-  const studioPairs=insCounts(E,e=>evStudioName(e)), seriesPairs=insCounts(E,e=>evSeriesName(e));
-  _insData.studio=studioPairs; _insData.series=seriesPairs;
-  const withPhotos=E.filter(e=>e.photoURLs&&e.photoURLs.length).length, withFav=E.filter(e=>(e.links||[]).some(l=>l.fav)).length, withDate=E.filter(hasFullDate).length;
+  const off=insDayOffset, live=off===0;
+  let S=null, missSnap=false;
+  if(live) S=activityInsStats();
+  else { const snap=(DB.snapshots||{})[isoDay(off)]; S=(snap&&snap.activity)||null; missSnap=!S; }
+  let html=insDayNavHTML();
+  if(missSnap){ $("activityInsightsBody").innerHTML=html+`<div class="card small muted" style="text-align:center;padding:22px">No snapshot was recorded for ${esc(insDateLabel(off))}.</div>`; return; }
 
   // Box 1 — Activity count
-  const totalPart=E.reduce((s,e)=>s+evIds(e).length,0), avgPpl=E.length?(totalPart/E.length).toFixed(2):"—";
-  let html=`<div class="card insgroup"><div class="statgrid" style="grid-template-columns:repeat(3,1fr)">
-    ${statBox(E.length,"Activities")}${statBox(studioPairs.length,"Studios")}${statBox(seriesPairs.length,"Series")}
+  html+=`<div class="card insgroup"><div class="statgrid" style="grid-template-columns:repeat(3,1fr)">
+    ${statBox(numOr(S.activities),"Activities")}${statBox(numOr(S.studios),"Studios")}${statBox(numOr(S.series),"Series")}
   </div>
-    <div class="small muted" style="margin-top:10px">👥 Avg people / activity: <b>${avgPpl}</b></div>
-    ${progressBar("📷 With pictures",withPhotos,E.length)}
-    ${progressBar("🎞️ With favorite link",withFav,E.length,"var(--accent2)")}
-    ${progressBar("📅 With full date",withDate,E.length,"var(--gold)")}
+    <div class="small muted" style="margin-top:10px">👥 Avg people / activity: <b>${numOr(S.avgPpl)}</b></div>
+    ${pbarOr("📷 With pictures",S.withPhotos,S.activities)}
+    ${pbarOr("🎞️ With favorite link",S.withFav,S.activities,"var(--accent2)")}
+    ${pbarOr("📅 With full date",S.withDate,S.activities,"var(--gold)")}
   </div>`;
 
-  // Box 2 — Studios & Series (with lookup)
-  html+=`<div class="card insgroup"><h3>Studios</h3>
-    <div class="instop">${insTop(studioPairs,3,false)}</div>
-    <input class="ins-search" placeholder="Look up a studio…" oninput="insSearch('studio',this.value)"><div class="ins-out small" id="ins_studio_out"></div>
-    <h3 style="margin-top:14px">Series</h3>
-    <div class="instop">${insTop(seriesPairs,3,false)}</div>
-    <input class="ins-search" placeholder="Look up a series…" oninput="insSearch('series',this.value)"><div class="ins-out small" id="ins_series_out"></div>
-  </div>`;
+  if(live){
+    const E=events();
+    const studioPairs=insCounts(E,e=>evStudioName(e)), seriesPairs=insCounts(E,e=>evSeriesName(e));
+    _insData.studio=studioPairs; _insData.series=seriesPairs;
+    // Box 2 — Studios & Series (with lookup)
+    html+=`<div class="card insgroup"><h3>Studios</h3>
+      <div class="instop">${insTop(studioPairs,3,false)}</div>
+      <input class="ins-search" placeholder="Look up a studio…" oninput="insSearch('studio',this.value)"><div class="ins-out small" id="ins_studio_out"></div>
+      <h3 style="margin-top:14px">Series</h3>
+      <div class="instop">${insTop(seriesPairs,3,false)}</div>
+      <input class="ins-search" placeholder="Look up a series…" oninput="insSearch('series',this.value)"><div class="ins-out small" id="ins_series_out"></div>
+    </div>`;
+    // Box 3 — Year distribution: 5-year groups; tap a group to drill into its per-year distribution
+    html+=`<div class="card insgroup"><h3>Year</h3><div id="actYearDist">${actYearDistHTML()}</div></div>`;
 
-  // Box 3 — Year distribution: 5-year groups; tap a group to drill into its per-year distribution
-  html+=`<div class="card insgroup"><h3>Year</h3><div id="actYearDist">${actYearDistHTML()}</div></div>`;
-
-  // extra collapsible charts: language, custom activity attributes, tags (each links into the filtered list)
-  const charts=[];
-  const agg=(keyFn)=>{ const m={}; E.forEach(e=>{ keyFn(e).forEach(k=>{ k=String(k).trim(); if(k) m[k]=(m[k]||0)+1; }); }); return m; };
-  const toItems=(m,n)=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n||Infinity).map(([k,v])=>({label:esc(k),value:v,filter:k}));
-  const langItems=Object.entries(agg(e=>eventLangCodes(e).map(langLabelFromCode))).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v}));
-  charts.push(insChart("act_lang","By language", langItems, "pie"));
-  (DB.settings.eventAttributes||[]).filter(at=>at.chart).forEach(at=>{
-    const counts={}; E.forEach(e=>{ let v=(e.attrs||{})[at.key]; if(v==null||v==="") return; (Array.isArray(v)?v:[v]).forEach(x=>{ x=String(x).trim(); if(x) counts[x]=(counts[x]||0)+1; }); });
-    const items=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v}));
-    if(items.length) charts.push(insChart("evattr:"+at.key, "By "+at.label, items, "bar"));
-  });
-  charts.push(insChart("act_tag","Activities by tag", toItems(agg(e=>e.tags||[]),20), "bar"));
-  const ch=charts.filter(Boolean); if(ch.length) html+=`<div class="inscharts">`+ch.join("")+`</div>`;
-  $("activityInsightsBody").innerHTML = (html || '<div class="card muted">No activities yet.</div>');
+    // extra collapsible charts: language, custom activity attributes, tags (each links into the filtered list)
+    const charts=[];
+    const agg=(keyFn)=>{ const m={}; E.forEach(e=>{ keyFn(e).forEach(k=>{ k=String(k).trim(); if(k) m[k]=(m[k]||0)+1; }); }); return m; };
+    const toItems=(m,n)=>Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n||Infinity).map(([k,v])=>({label:esc(k),value:v,filter:k}));
+    const langItems=Object.entries(agg(e=>eventLangCodes(e).map(langLabelFromCode))).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v}));
+    charts.push(insChart("act_lang","By language", langItems, "pie"));
+    (DB.settings.eventAttributes||[]).filter(at=>at.chart).forEach(at=>{
+      const counts={}; E.forEach(e=>{ let v=(e.attrs||{})[at.key]; if(v==null||v==="") return; (Array.isArray(v)?v:[v]).forEach(x=>{ x=String(x).trim(); if(x) counts[x]=(counts[x]||0)+1; }); });
+      const items=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:esc(k),value:v}));
+      if(items.length) charts.push(insChart("evattr:"+at.key, "By "+at.label, items, "bar"));
+    });
+    charts.push(insChart("act_tag","Activities by tag", toItems(agg(e=>e.tags||[]),20), "bar"));
+    const ch=charts.filter(Boolean); if(ch.length) html+=`<div class="inscharts">`+ch.join("")+`</div>`;
+  } else {
+    html+=`<div class="card insgroup"><h3>Studios &amp; Series</h3><div class="small muted">Top lists, lookup &amp; year distribution — ${insNA()}</div></div>`;
+  }
+  $("activityInsightsBody").innerHTML = html;
 }
 
 /* ============================ TAG ME ============================ */
@@ -7548,7 +7652,7 @@ async function init(){
   let startTab="rewards"; try{ const t=localStorage.getItem("bench_tab"); if(t&&$("tab-"+t)) startTab=t; }catch(e){}   // reopen on the last page
   showTab(startTab); tabBack=[];   // home tab is the base; nothing to go "back" to from here
   navSetup();                        // phone back button → close overlay / previous tab instead of exiting
-  if(SYNC.on) syncNow(false);
+  if(SYNC.on) syncNow(false); else maybeSnapshotToday();   // sync path snapshots after its merge; offline path snapshots from local data now
   if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
   // password lock: start locked, watch for inactivity, re-lock after 5 min idle.
   // Only gate the app when there's something to protect: skip locally (LOCK_OFF), and skip when
