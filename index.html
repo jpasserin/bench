@@ -452,6 +452,11 @@ body.alt-activity #activityViewOverlay .photogrid .pg{aspect-ratio:16/9}
 .rc-cell .rc-badge{position:absolute;bottom:6px;left:6px;background:rgba(0,0,0,.68);color:#fff;font-size:14px;font-weight:700;padding:2px 10px;border-radius:999px;pointer-events:none;z-index:2}
 .rc-cell .rc-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:44px;color:var(--muted)}
 .rc-ctrls{flex:none;padding-top:4px}
+/* Duel → Compare: same two-column look as Rate → Compare, but sized for the scrolling card
+   (cells get an aspect ratio instead of filling a bounded flex height) */
+.ch-grid{padding:0}
+.ch-grid .rc-cell{flex:none;aspect-ratio:3/4}
+.ch-col .ch-name{text-align:center;font-weight:600;font-size:14px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* rating-graduated banner (a provisional rating became established) */
 #gradPop{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:98;background:var(--good);color:#fff;
   padding:11px 20px;border-radius:12px;font-weight:700;font-size:15px;box-shadow:0 8px 28px rgba(0,0,0,.45);
@@ -1521,7 +1526,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "390";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "391";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -4172,15 +4177,20 @@ function chOnSlider(v){ chValue=Number(v); const A=actorById(chPair[0]),B=actorB
 function renderChallengeBody(){
   const body=$("chBody"); if(!chSkillKey){ body.innerHTML='<div class="small muted">Rate at least 2 people on a skill (Rate button in People) to start.</div>'; return; }
   if(!chPair[0]||!chPair[1]){ body.innerHTML='<div class="small muted">Not enough rated people for this skill.</div>'; return; }
-  const A=actorById(chPair[0]), B=actorById(chPair[1]), sk=(DB.settings.skills||[]).find(s=>s.key===chSkillKey);
-  const card=(p,side)=>{ const urls=photosForSkill(p,chSkillKey); const tagged=hasPhotoTag(p,chSkillKey);
-    return `<div style="flex:1;min-width:0;text-align:center">
-    ${rotThumb(urls,{style:"width:100%;aspect-ratio:3/4;border-radius:12px;cursor:pointer",name:p.name,personId:p.id,skillKey:chSkillKey,randomStart:!tagged})}
-    <div style="font-weight:600;margin-top:6px">${esc(p.name)}</div></div>`; };
+  const A=actorById(chPair[0]), B=actorById(chPair[1]);
+  // one column per person, mirroring the Rate → Compare layout: name on top, two stacked photos, rating badge on the first.
+  // each cell is a rotThumb: tap left/right flips photos, tap middle opens the viewer (filtered to this skill's tag).
+  const col=(p)=>{ const r=ratingOf(p.id,chSkillKey), rv=r?r.value.toFixed(2):"—", urls=(p.photoURLs||[]).filter(Boolean);
+    const pics=twoPhotosForSkill(p,chSkillKey);
+    const cell=(u,badge)=>{ const start=Math.max(0,urls.indexOf(u));
+      const thumb=urls.length?rotThumb(urls,{start,name:p.name,personId:p.id,skillKey:chSkillKey,style:"width:100%;height:100%;border-radius:12px"}):'<div class="rc-ph">👤</div>';
+      return `<div class="rc-cell">${thumb}${badge?`<div class="rc-badge">${rv}${isProvisional(r)?'<span class="provq">?</span>':""}</div>`:""}</div>`; };
+    const cells = pics.length?pics.map((u,k)=>cell(u,k===0)).join(""):cell(urls[0]||null,true);
+    return `<div class="rc-col ch-col"><div class="ch-name">${esc(p.name)}</div>${cells}</div>`; };
   const sliderLbl = chValue===0?"equal":(chValue<0?`◀ ${esc(A.name)} +${(-chValue).toFixed(1)}`:`${esc(B.name)} +${chValue.toFixed(1)} ▶`);
   body.innerHTML=`
-    <div class="row" style="align-items:flex-start;gap:6px">${card(A,0)}<div style="align-self:center;font-weight:700;color:var(--muted);flex:none">vs</div>${card(B,1)}</div>
-    <div style="margin-top:16px">
+    <div class="rc-grid ch-grid">${col(A)}${col(B)}</div>
+    <div class="rc-ctrls" style="margin-top:12px">
       <input id="chSlider" type="range" min="-1" max="1" step="0.1" value="${chValue}" oninput="chOnSlider(this.value)">
       <div class="spread"><span class="small muted">◀ ${esc(A.name)}</span><span class="small" id="chSliderLbl">${sliderLbl}</span><span class="small muted">${esc(B.name)} ▶</span></div>
       <div style="margin-top:14px;display:flex;gap:8px"><button class="primary" style="flex:1" onclick="challengeSubmit()">Submit</button><button class="sm" style="flex:0 0 auto" onclick="challengeRandom()">⏭ Skip</button></div></div>`;
