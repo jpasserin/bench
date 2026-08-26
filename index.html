@@ -379,38 +379,62 @@ body.alt-activity #activityViewOverlay .photogrid .pg{aspect-ratio:16/9}
 /* links list */
 .linklist a{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 
-/* lightbox */
-.lightbox{position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.96);display:none;align-items:center;justify-content:center}
+/* ===== image viewer (lightbox) — flex column that always fits the screen ===== */
+.lightbox{position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.97);display:none;flex-direction:column;
+  padding:calc(8px + env(safe-area-inset-top)) 8px calc(8px + env(safe-area-inset-bottom))}
 .lightbox.show{display:flex}
-.lightbox img{max-width:92vw;max-height:80vh;object-fit:contain;border-radius:8px;touch-action:none;transform-origin:center center;will-change:transform;cursor:zoom-in}
-.lightbox img.zoomed{cursor:grab}
-.lb-btn{position:absolute;background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:10px;cursor:pointer}
-.lb-nav{top:50%;transform:translateY(-50%);font-size:26px;padding:10px 15px}
-.lb-prev{left:12px} .lb-next{right:12px}
-.lb-cap{position:absolute;bottom:132px;left:0;right:0;text-align:center;color:#fff;font-size:13px}
-.lb-topbar{position:absolute;top:14px;left:10px;right:10px;z-index:4;display:flex;gap:8px;align-items:center;justify-content:center}
-.lb-topbar .lb-title{flex:0 1 auto;min-width:0;color:#fff;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:4px}
-.lb-topbar button.lb-ic{flex:none;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.55);color:#fff;border-radius:10px;width:42px;height:42px;padding:0;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer}
-.lb-topbar button.lb-ic:hover{background:rgba(255,255,255,.28)}
-.lb-topbar button.fav-on{color:var(--gold);border-color:var(--gold)}
-/* bottom thumbnail strip (jump to any photo in the album) */
-.lb-strip{position:absolute;bottom:84px;left:0;right:0;z-index:3;display:flex;gap:4px;justify-content:safe center;padding:0 10px;overflow-x:auto;scrollbar-width:none}
-.lb-strip::-webkit-scrollbar{display:none}
-.lb-strip .lt{flex:0 0 auto;width:8vw;max-width:46px;min-width:28px;aspect-ratio:3/4;border-radius:6px;overflow:hidden;cursor:pointer;opacity:.5;border:2px solid transparent;background:#0a0c11}
-.lb-strip .lt.on{opacity:1;border-color:#fff}
-.lb-strip .lt img{width:100%;height:100%;object-fit:cover}
-/* bottom close button — matches the .closebar buttons used on every other page */
-.lb-close-bottom{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:3;
-  width:100%;max-width:340px;padding:16px;font-size:17px;font-weight:600;border-radius:10px;
-  background:var(--card2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
-/* lightbox browse grid — 3 per row, opened from the top Browse button (replaces the bottom strip) */
-.lb-grid{position:absolute;top:70px;left:10px;right:10px;bottom:80px;z-index:4;
-  flex-direction:column;gap:8px;padding:10px;background:rgba(0,0,0,.86);border-radius:12px}
-.lb-grid .lb-grid-cells{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-content:start;-webkit-overflow-scrolling:touch}
-.lb-grid .lb-grid-pager{flex:none}
-.lb-grid .lg{aspect-ratio:3/4;border-radius:8px;overflow:hidden;cursor:pointer;background:#0a0c11;border:2px solid transparent}
-.lb-grid .lg.on{border-color:#fff}
-.lb-grid .lg img{width:100%;height:100%;object-fit:cover;display:block}
+/* top row: name on the left, action buttons on the right */
+.lb-top{flex:none;position:relative;display:flex;align-items:center;gap:8px;padding:2px 2px 8px}
+.lb-top .lb-title{flex:1;min-width:0;color:#fff;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-actions{flex:none;display:flex;gap:8px}
+.lb-ic{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:10px;
+  width:42px;height:42px;padding:0;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer}
+.lb-ic:hover{background:rgba(255,255,255,.25)}
+.lb-ic.fav-on{color:var(--gold);border-color:var(--gold)}
+.lb-ic.arm{background:#e0202c;border-color:#ff6b73;color:#fff}
+/* ⚙️ gear dropdown */
+.lb-gear{position:absolute;top:100%;right:2px;z-index:6;min-width:210px;max-width:min(88vw,320px);
+  max-height:64vh;overflow:auto;background:var(--card2);border:1px solid var(--line);border-radius:12px;
+  padding:10px;box-shadow:0 12px 32px -8px rgba(0,0,0,.7);display:flex;flex-direction:column;gap:8px}
+.lb-gear .lb-gsec{font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:700;color:var(--muted)}
+.lb-gear .lb-link{background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:9px 11px;text-align:left;cursor:pointer;font-size:14px}
+.lb-gear .lb-tagfilters{display:flex;flex-wrap:wrap;gap:6px}
+.lb-gear .lb-tf{border-radius:999px;padding:5px 11px;font-size:12px;background:var(--bg2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
+.lb-gear .lb-tf.on{border-color:var(--accent);color:var(--accent2);background:rgba(120,160,255,.12)}
+.lb-gear .lb-tf.fav.on{border-color:var(--gold);color:var(--gold);background:rgba(224,176,0,.12)}
+.lb-gear .lb-seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.lb-gear .lb-seg button{flex:1;background:var(--bg2);border:none;border-left:1px solid var(--line);color:var(--txt);padding:9px 0;font-size:14px;cursor:pointer}
+.lb-gear .lb-seg button:first-child{border-left:none}
+.lb-gear .lb-seg button.on{background:var(--accent);color:#fff;font-weight:700}
+/* body — single image or a 4/12 grid */
+.lb-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+.lb-single{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.lb-single img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;touch-action:none;transform-origin:center center;will-change:transform;cursor:zoom-in}
+.lb-single img.zoomed{cursor:grab}
+.lb-single.fav img{outline:3px solid var(--gold);outline-offset:-3px}
+.lb-single .lb-star{position:absolute;top:8px;right:8px;color:var(--gold);font-size:22px;text-shadow:0 1px 3px #000;pointer-events:none;z-index:3}
+.lb-grid2{width:100%;height:100%;display:grid;gap:6px;align-content:start;overflow:auto;-webkit-overflow-scrolling:touch}
+.lb-grid2[data-size="4"]{grid-template-columns:repeat(2,1fr)}
+.lb-grid2[data-size="12"]{grid-template-columns:repeat(3,1fr)}
+.lb-cell{position:relative;aspect-ratio:3/4;background:#0a0c11;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid transparent}
+.lb-cell.on{border-color:#fff}
+.lb-cell img{width:100%;height:100%;object-fit:cover;display:block}
+.lb-cell.fav{outline:2px solid var(--gold);outline-offset:-2px}
+.lb-cell .lb-cstar{position:absolute;top:4px;right:5px;color:var(--gold);font-size:15px;text-shadow:0 1px 2px #000;pointer-events:none}
+/* caption (single mode): dimensions + resolution dot + tags */
+.lb-cap{flex:none;color:#fff;text-align:center;font-size:13px;padding:8px 6px 2px;display:flex;flex-direction:column;gap:5px;align-items:center}
+.lb-cap:empty{display:none}
+.lb-cap .lb-dim{display:inline-flex;align-items:center;gap:7px}
+.lb-cap .lb-resdot{width:11px;height:11px;border-radius:50%;box-shadow:0 0 3px rgba(0,0,0,.7)}
+.lb-cap .lb-tags{display:flex;flex-wrap:wrap;gap:5px;justify-content:center}
+.lb-cap .lb-tag{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:2px 9px;font-size:11px}
+/* bottom row: [Close]  ‹ page x/y › */
+.lb-bottom{flex:none;display:flex;align-items:center;gap:10px;padding-top:8px}
+.lb-close{flex:1;padding:14px;font-size:16px;font-weight:600;border-radius:10px;background:var(--card2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
+.lb-pager{flex:none;display:flex;align-items:center;gap:6px}
+.lb-pager button{background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:9px;width:44px;height:46px;font-size:22px;cursor:pointer}
+.lb-pager button:disabled{opacity:.3;cursor:default}
+.lb-pager .lb-pinfo{color:#fff;font-size:14px;min-width:58px;text-align:center;font-variant-numeric:tabular-nums}
 
 /* ===== full-screen rating (compare) page ===== */
 .rc-page{height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
@@ -1471,23 +1495,22 @@ button.boolcap{cursor:pointer;font-family:inherit}
 </div></div>
 
 <!-- ===================== PHOTO LIGHTBOX ===================== -->
-<div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <div class="lb-topbar" id="lbTopbar" style="display:none">
+<div class="lightbox" id="lightbox">
+  <div class="lb-top">
     <span class="lb-title" id="lbTitle"></span>
-    <button class="lb-ic" id="lbOwnerBtn" title="Open profile" onclick="event.stopPropagation();lbOpenOwner()">👤</button>
-    <button class="lb-ic" id="lbBrowseBtn" title="Browse all photos" onclick="event.stopPropagation();lbToggleGrid()">▦</button>
-    <button class="lb-ic" id="lbFavBtn" title="Favorite" onclick="event.stopPropagation();lbToggleFav()">☆</button>
-    <button class="lb-ic" id="lbDelBtn" title="Delete this photo" onclick="event.stopPropagation();lbDeletePhoto()">🗑️</button>
+    <div class="lb-actions">
+      <button class="lb-ic" id="lbFavBtn" title="Favorite" onclick="lbToggleFav()">☆</button>
+      <button class="lb-ic" id="lbDelBtn" title="Delete photo" onclick="lbDeleteTap()">🗑️</button>
+      <button class="lb-ic" id="lbGearBtn" title="Settings" onclick="lbToggleGear()">⚙️</button>
+    </div>
+    <div class="lb-gear" id="lbGear" style="display:none"></div>
   </div>
-  <button class="lb-btn lb-nav lb-prev" onclick="event.stopPropagation();lbStep(-1)">‹</button>
-  <img id="lbImg" src="" referrerpolicy="no-referrer">
-  <button class="lb-btn lb-nav lb-next" onclick="event.stopPropagation();lbStep(1)">›</button>
+  <div class="lb-body" id="lbBody"></div>
   <div class="lb-cap" id="lbCap"></div>
-  <div class="lb-grid" id="lbGrid" style="display:none" onclick="event.stopPropagation()">
-    <div class="lb-grid-cells" id="lbGridCells"></div>
-    <div class="pager lb-grid-pager" id="lbGridPager"></div>
+  <div class="lb-bottom">
+    <button class="lb-close" onclick="closeLightbox()">✕ Close</button>
+    <div class="lb-pager" id="lbPager"></div>
   </div>
-  <button class="lb-close-bottom" onclick="event.stopPropagation();closeLightbox()">✕ Close</button>
 </div>
 
 <div class="selbar" id="selBar"></div>
@@ -1503,7 +1526,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "388";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "389";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1615,82 +1638,136 @@ function statBox(v,label,style){ return `<div class="statbox"${style?` style="${
 function progressBar(label,num,den,color){ const p=den?Math.round(num/den*100):0;
   return `<div class="small muted" style="margin-top:8px">${label} · ${num}/${den} (${p}%)</div><div class="pbar"><div style="width:${p}%${color?";background:"+color:""}"></div></div>`; }
 
-/* ===== photo lightbox (browse left/right, pinch/double-tap/scroll to zoom, drag to pan) ===== */
-let lbList=[], lbIdx=0, lbName="", lbOwnerId="", lbOwnerKind="", lbRotId="", lbZoom=1, lbX=0, lbY=0;
-function openLightbox(urls,start,name,ownerId,ownerKind){ lbList=(urls||[]).filter(Boolean); if(!lbList.length) return; lbIdx=Math.max(0,Math.min(start||0,lbList.length-1)); lbName=name||""; lbOwnerId=ownerId||""; lbOwnerKind=ownerId?(ownerKind||"person"):""; lbRotId="";
-  const tb=$("lbTopbar"); if(tb) tb.style.display=(lbOwnerId||lbList.length>1)?"flex":"none";
-  const ob=$("lbOwnerBtn"); if(ob){ ob.textContent = lbOwnerKind==="activity"?"🎬":"👤"; ob.title = lbOwnerKind==="activity"?"Open activity":"Open profile"; ob.style.display=lbOwnerId?"":"none"; }
-  const bb=$("lbBrowseBtn"); if(bb) bb.style.display=lbList.length>1?"":"none";
-  const fb=$("lbFavBtn"); if(fb) fb.style.display=lbOwnerId?"":"none";
-  const db=$("lbDelBtn"); if(db) db.style.display=lbOwnerId?"":"none";
-  lbHideGrid(); lbShow(); $("lightbox").classList.add("show"); }
-// ----- browse grid: a 3-per-row thumbnail grid (opened from the top Browse button) to jump to any photo -----
-const LB_GRID_PER=12;   // 4 rows of 3
-let lbGridPage=1;
-function lbToggleGrid(){ const g=$("lbGrid"); if(!g) return;
-  if(g.style.display==="none"){ lbGridPage=Math.floor(lbIdx/LB_GRID_PER)+1; lbBuildGrid(); g.style.display="flex"; } else lbHideGrid(); }
-function lbHideGrid(){ const g=$("lbGrid"); if(g) g.style.display="none"; }
-function lbGridGo(p){ const pages=Math.max(1,Math.ceil(lbList.length/LB_GRID_PER)); lbGridPage=Math.max(1,Math.min(p,pages)); lbBuildGrid(); }
-function lbBuildGrid(){ const cells=$("lbGridCells"); if(!cells) return;
-  const pages=Math.max(1,Math.ceil(lbList.length/LB_GRID_PER));
-  lbGridPage=Math.max(1,Math.min(lbGridPage,pages));
-  const s=(lbGridPage-1)*LB_GRID_PER, slice=lbList.slice(s,s+LB_GRID_PER);
-  cells.innerHTML=slice.map((u,k)=>{ const i=s+k;
-    return `<div class="lg ${i===lbIdx?"on":""}" onclick="event.stopPropagation();lbGridPick(${i})"><img src="${esc(u)}" referrerpolicy="no-referrer" loading="lazy"></div>`; }).join("");
-  buildPager("lbGridPager",lbGridPage,pages,"lbGridGo"); }
-function lbGridPick(i){ lbJump(i); lbHideGrid(); }
-function lbSyncGrid(){ const g=$("lbGrid"); if(!g||g.style.display==="none") return;
-  const want=Math.floor(lbIdx/LB_GRID_PER)+1; if(want!==lbGridPage){ lbGridPage=want; lbBuildGrid(); return; }
-  const cells=$("lbGridCells"); if(!cells) return; const k=cells.children, s=(lbGridPage-1)*LB_GRID_PER;
-  for(let i=0;i<k.length;i++) k[i].classList.toggle("on",(s+i)===lbIdx); }
+/* ===== image viewer (lightbox) =====
+   Top row: name (left) + ★ favorite / 🗑 delete (red-confirm) / ⚙️ settings (right).
+   Body: one image (tap left/right to browse, center to zoom, pinch/drag to pan) OR a 4/12 grid
+   (tap a cell to open it alone). Single mode shows dimensions + a resolution dot + the photo's tags,
+   and a favorite gets a gold outline + ★. Bottom row: [Close]  ‹ page x/y ›. Swipe changes image/page.
+   Settings gear: open the owner's page, a tag filter list (persons), and 1 / 4 / 12 photos-per-view. */
+let lbAll=[], lbIdx=0, lbName="", lbOwnerId="", lbOwnerKind="", lbRotId="";
+let lbSize=1, lbPage=1, lbFilter=new Set(), lbGearOpen=false, lbDelArm=false, lbDelT=null, lbDirty=false;
+let lbZoom=1, lbX=0, lbY=0, lbMoved=false;
+function openLightbox(urls,start,name,ownerId,ownerKind,opts){ opts=opts||{};
+  lbAll=(urls||[]).filter(Boolean); if(!lbAll.length) return;
+  lbName=name||""; lbOwnerId=ownerId||""; lbOwnerKind=ownerId?(ownerKind||"person"):""; lbRotId="";
+  lbSize=1; lbPage=1; lbGearOpen=false; lbDelArm=false; lbDirty=false; lbFilter=new Set(); clearTimeout(lbDelT);
+  const startUrl=lbAll[Math.max(0,Math.min(start||0,lbAll.length-1))];
+  if(opts.filterTag && lbOwnerKind==="person"){ const o=lbOwner(); if(o&&hasPhotoTag(o,opts.filterTag)) lbFilter.add(opts.filterTag); }
+  const v=lbView(); let si=v.indexOf(startUrl); if(si<0) si=0; lbIdx=si;
+  lbCloseGear(); lbRender(); $("lightbox").classList.add("show"); }
+function openPersonPhotos(actorId,start){ const a=actorById(actorId); if(a) openLightbox(a.photoURLs,start||0,a.name,actorId); }
 function lbOwner(){   // prefer the open editor's draft (a clone) so favoriting from the editor isn't overwritten on save
   if($("actorOverlay")&&$("actorOverlay").classList.contains("show")&&window.__draftActor&&window.__draftActor.id===lbOwnerId) return window.__draftActor;
   if($("eventOverlay")&&$("eventOverlay").classList.contains("show")&&window.__draftEvent&&window.__draftEvent.id===lbOwnerId) return window.__draftEvent;
   return lbOwnerKind==="activity"?DB.events.find(x=>x.id===lbOwnerId):actorById(lbOwnerId); }
-function lbUpdateFav(){ const b=$("lbFavBtn"); if(!b||!lbOwnerId) return; const o=lbOwner();
-  const fav = o && (o.profilePics||[]).includes(lbList[lbIdx]);
-  b.textContent = fav?"★":"☆"; b.title = fav?"Remove favorite":"Favorite"; b.classList.toggle("fav-on",!!fav); }
-// delete the current photo from its owner (with confirmation) and drop it from the open list
-function lbDeletePhoto(){ if(!lbOwnerId) return; const o=lbOwner(); if(!o) return; const u=lbList[lbIdx];
-  const who=lbName||("this "+(lbOwnerKind==="activity"?"activity":"person"));
-  if(!confirm(`Delete this photo from ${who}? This can't be undone.`)) return;
-  o.photoURLs=(o.photoURLs||[]).filter(x=>x!==u);
-  if(o.profilePics) o.profilePics=(o.profilePics||[]).filter(x=>x!==u);
-  const t=now(); o.updatedAt=t; DB.rev=Math.max(DB.rev||0,t);
-  if(o===window.__draftActor||o===window.__draftEvent){ refreshPhotoStrip(); autoSaveDraft(); }
-  else commit();
-  if(lbRotId && ROT[lbRotId]) ROT[lbRotId].urls=(ROT[lbRotId].urls||[]).filter(x=>x!==u);   // keep the source rotator in sync
-  lbList=lbList.filter(x=>x!==u);
-  toast("Photo deleted");
-  if(!lbList.length){ closeLightbox(); return; }
-  if(lbIdx>=lbList.length) lbIdx=lbList.length-1;
-  lbShow(); if($("lbGrid")&&$("lbGrid").style.display!=="none") lbBuildGrid();
-  const bb=$("lbBrowseBtn"); if(bb) bb.style.display=lbList.length>1?"":"none"; }
-function lbToggleFav(){ if(!lbOwnerId) return; const o=lbOwner(); if(!o) return; const u=lbList[lbIdx];
+// the visible photo list = full album narrowed by any active tag / favorite filters (AND semantics)
+function lbFilterPhotos(all, filter, o){ all=all||[]; if(!filter||!filter.size) return all.slice();
+  const favs=new Set((o&&o.profilePics)||[]);
+  return all.filter(u=>{ for(const f of filter){ if(f==="__fav"){ if(!favs.has(u)) return false; }
+    else if(!o || photoTagsOf(o,u).indexOf(f)<0) return false; } return true; }); }
+function lbView(){ return lbFilterPhotos(lbAll, lbFilter, lbOwner()); }
+function lbRender(){ let view=lbView();
+  if(!view.length){ if(lbFilter.size){ lbFilter=new Set(); return lbRender(); } closeLightbox(); return; }
+  if(lbIdx>=view.length) lbIdx=view.length-1; if(lbIdx<0) lbIdx=0;
+  const ttl=$("lbTitle"); if(ttl) ttl.textContent=lbName||(lbOwnerKind==="activity"?"Activity":"Photos");
+  const single=lbSize===1 && !!lbOwnerId;   // favorite/delete act on ONE image
+  $("lbFavBtn").style.display=single?"":"none"; $("lbDelBtn").style.display=single?"":"none";
+  if(lbSize===1) lbRenderSingle(view); else lbRenderGrid(view);
+  lbRenderPager(view); if(lbGearOpen) lbRenderGear(); lbUpdateFav(view); }
+function lbRenderSingle(view){ const o=lbOwner(); const u=view[lbIdx];
+  const isFav = !!(o && (o.profilePics||[]).includes(u));
+  $("lbBody").innerHTML=`<div class="lb-single${isFav?" fav":""}"><img id="lbImg" src="${esc(u)}" referrerpolicy="no-referrer">${isFav?'<div class="lb-star">★</div>':""}</div>`;
+  const im=$("lbImg"); im.onload=()=>lbFillCap(im,o,u); if(im.complete&&im.naturalWidth) lbFillCap(im,o,u);
+  lbResetZoom(); }
+function lbFillCap(im,o,u){ const cap=$("lbCap"); if(!cap) return; const w=im.naturalWidth,h=im.naturalHeight;
+  if(!w||!h){ cap.innerHTML=""; return; }
+  const min=Math.min(w,h), thr=lowqMinRes();
+  const color = min<=thr/2 ? "#e0202c" : (min<thr ? "#e0b000" : "#2ec25a");
+  const tier  = min<=thr/2 ? "Low" : (min<thr ? "Medium" : "High");
+  let html=`<div class="lb-dim">${w}×${h} px <span class="lb-resdot" style="background:${color}" title="${tier} resolution"></span></div>`;
+  if(lbOwnerKind==="person" && o){ const keys=photoTagsOf(o,u);
+    if(keys.length){ const byKey=Object.fromEntries((DB.settings.skills||[]).map(s=>[s.key,s.label]));
+      html+=`<div class="lb-tags">${keys.map(k=>`<span class="lb-tag">${esc(byKey[k]||k)}</span>`).join("")}</div>`; } }
+  cap.innerHTML=html; }
+function lbRenderGrid(view){ $("lbCap").innerHTML="";
+  const pages=Math.max(1,Math.ceil(view.length/lbSize)); lbPage=Math.max(1,Math.min(lbPage,pages));
+  const s=(lbPage-1)*lbSize, slice=view.slice(s,s+lbSize);
+  const o=lbOwner(), favs=new Set((o&&o.profilePics)||[]);
+  $("lbBody").innerHTML=`<div class="lb-grid2" data-size="${lbSize}">${slice.map((u,k)=>{ const gi=s+k, fav=favs.has(u);
+    return `<div class="lb-cell${fav?" fav":""}" onclick="event.stopPropagation();lbCellPick(${gi})"><img src="${esc(u)}" referrerpolicy="no-referrer" loading="lazy">${fav?'<div class="lb-cstar">★</div>':""}</div>`; }).join("")}</div>`;
+  lbResetZoom(); }
+function lbCellPick(gi){ lbSize=1; lbIdx=gi; lbRender(); }   // tapping a grid cell → open it alone
+function lbRenderPager(view){ const pg=$("lbPager"); if(!pg) return; let cur,pages,prevFn,nextFn;
+  if(lbSize===1){ pages=view.length; cur=lbIdx+1; prevFn="lbStep(-1)"; nextFn="lbStep(1)"; }
+  else { pages=Math.max(1,Math.ceil(view.length/lbSize)); cur=lbPage; prevFn="lbPageShift(-1)"; nextFn="lbPageShift(1)"; }
+  if(pages<=1){ pg.innerHTML=""; return; }
+  pg.innerHTML=`<button ${cur<=1?"disabled":""} onclick="${prevFn}">‹</button><span class="lb-pinfo">${cur} / ${pages}</span><button ${cur>=pages?"disabled":""} onclick="${nextFn}">›</button>`; }
+function lbStep(d){ const view=lbView(); if(!view.length) return; const n=lbIdx+d; if(n<0||n>=view.length) return; lbIdx=n; lbRender(); }
+function lbPageShift(d){ const view=lbView(); const pages=Math.max(1,Math.ceil(view.length/lbSize)); const n=lbPage+d; if(n<1||n>pages) return; lbPage=n; lbRender(); }
+function lbSwipe(dir){ if(lbSize===1) lbStep(dir); else lbPageShift(dir); }
+function lbUpdateFav(view){ const b=$("lbFavBtn"); if(!b) return; view=view||lbView();
+  const o=lbOwner(), u=(lbSize===1)?view[lbIdx]:null;
+  const fav = !!(o && u && (o.profilePics||[]).includes(u));
+  b.textContent = fav?"★":"☆"; b.title=fav?"Remove favorite":"Favorite"; b.classList.toggle("fav-on",fav); }
+function lbToggleFav(){ if(!lbOwnerId||lbSize!==1) return; const o=lbOwner(); if(!o) return; const u=lbView()[lbIdx]; if(!u) return;
   o.profilePics=o.profilePics||[]; const j=o.profilePics.indexOf(u); if(j>=0) o.profilePics.splice(j,1); else o.profilePics.push(u);
   const star=new Set(o.profilePics); (o.photoURLs||[]).sort((x,y)=>((star.has(y)?1:0)-(star.has(x)?1:0)));   // favorites to the front
-  const t=now(); o.updatedAt=t; DB.rev=Math.max(DB.rev||0,t);
-  if(o===window.__draftActor||o===window.__draftEvent){ refreshPhotoStrip(); autoSaveDraft(); }   // editing → persist the draft
-  else commit();
-  lbUpdateFav(); toast(o.profilePics.includes(u)?"Added to favorites":"Removed from favorites"); }
+  const t=now(); o.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); lbDirty=true;
+  if(o===window.__draftActor||o===window.__draftEvent){ refreshPhotoStrip(); autoSaveDraft(); } else commit();
+  toast(o.profilePics.includes(u)?"Added to favorites":"Removed from favorites"); lbRender(); }
+// trash: first tap arms (button turns red), second tap within 3s deletes
+function lbDeleteTap(){ if(!lbOwnerId||lbSize!==1) return; const b=$("lbDelBtn");
+  if(!lbDelArm){ lbDelArm=true; b.classList.add("arm"); b.title="Tap again to delete";
+    clearTimeout(lbDelT); lbDelT=setTimeout(()=>{ lbDelArm=false; b.classList.remove("arm"); b.title="Delete photo"; },3000); return; }
+  clearTimeout(lbDelT); lbDelArm=false; b.classList.remove("arm"); b.title="Delete photo"; lbDoDelete(); }
+function lbDoDelete(){ const o=lbOwner(); if(!o) return; const u=lbView()[lbIdx]; if(!u) return;
+  o.photoURLs=(o.photoURLs||[]).filter(x=>x!==u); if(o.profilePics) o.profilePics=o.profilePics.filter(x=>x!==u);
+  const t=now(); o.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); lbDirty=true;
+  if(o===window.__draftActor||o===window.__draftEvent){ refreshPhotoStrip(); autoSaveDraft(); } else commit();
+  if(lbRotId && ROT[lbRotId]) ROT[lbRotId].urls=(ROT[lbRotId].urls||[]).filter(x=>x!==u);   // keep the source rotator in sync
+  lbAll=lbAll.filter(x=>x!==u); toast("Photo deleted");
+  const view=lbView(); if(!view.length){ closeLightbox(); return; }
+  if(lbIdx>=view.length) lbIdx=view.length-1; lbRender(); }
+function lbToggleGear(){ lbGearOpen=!lbGearOpen; const g=$("lbGear"); if(!g) return;
+  if(lbGearOpen){ lbRenderGear(); g.style.display="flex"; } else g.style.display="none"; }
+function lbCloseGear(){ lbGearOpen=false; const g=$("lbGear"); if(g) g.style.display="none"; }
+function lbRenderGear(){ const g=$("lbGear"); if(!g) return; const o=lbOwner(); let html="";
+  if(lbOwnerId){ const isAct=lbOwnerKind==="activity";
+    html+=`<button class="lb-link" onclick="lbOpenOwner()">${isAct?"🎬 Open activity page":"👤 Open profile"}</button>`; }
+  if(lbOwnerKind==="person" && o){ const cats=skillsByCat("physical").filter(s=>hasPhotoTag(o,s.key)); const hasFav=(o.profilePics||[]).length>0;
+    if(cats.length||hasFav){ html+=`<div class="lb-gsec">Filter photos</div><div class="lb-tagfilters">`;
+      if(hasFav) html+=`<button class="lb-tf fav${lbFilter.has("__fav")?" on":""}" onclick="lbToggleFilter('__fav')">★ Favorites</button>`;
+      html+=cats.map(s=>`<button class="lb-tf${lbFilter.has(s.key)?" on":""}" onclick="lbToggleFilter('${esc(s.key)}')">${esc(s.label)}</button>`).join("")+`</div>`; } }
+  html+=`<div class="lb-gsec">Photos per view</div><div class="lb-seg">${[1,4,12].map(n=>`<button class="${lbSize===n?"on":""}" onclick="lbSetSize(${n})">${n}</button>`).join("")}</div>`;
+  g.innerHTML=html; }
+function lbToggleFilter(key){ if(lbFilter.has(key)) lbFilter.delete(key); else lbFilter.add(key); lbIdx=0; lbPage=1; lbRender(); }
+function lbSetSize(n){ if(lbSize===n) return; const view=lbView();
+  const globalIdx = lbSize===1 ? lbIdx : (lbPage-1)*lbSize;
+  if(n===1){ lbIdx=Math.min(Math.max(0,globalIdx), Math.max(0,view.length-1)); }
+  else { lbPage=Math.floor(globalIdx/n)+1; }
+  lbSize=n; lbRender(); }
 function lbOpenOwner(){ const id=lbOwnerId, kind=lbOwnerKind; closeLightbox(); if(!id) return; if(kind==="activity") openActivity(id); else openPerson(id); }
-function lbJump(i){ if(i<0||i>=lbList.length) return; lbIdx=i; lbShow(); }
-function lbShow(){ const im=$("lbImg"); im.src=lbList[lbIdx];
-  const ttl=$("lbTitle"); if(ttl) ttl.textContent=(lbName?lbName+" - ":"")+(lbIdx+1)+" / "+lbList.length+" images";
-  // bottom caption shows the natural resolution of the current photo (once it loads)
-  const cap=$("lbCap"); if(cap){ cap.textContent=""; im.onload=()=>{ if(im.naturalWidth&&im.naturalHeight) cap.textContent=im.naturalWidth+"×"+im.naturalHeight+" px"; }; }
-  lbSyncGrid(); lbUpdateFav(); lbResetZoom(); }
-function lbStep(d){ if(!lbList.length) return; lbIdx=(lbIdx+d+lbList.length)%lbList.length; lbShow(); }
 function closeLightbox(){
-  // if opened from a rotating thumbnail, leave that thumbnail showing the photo you ended on
-  if(lbRotId && ROT[lbRotId]){ const r=ROT[lbRotId]; r.idx=Math.max(0,Math.min(lbIdx,r.urls.length-1)); r.paused=true;
-    const el=document.querySelector('[data-rot="'+lbRotId+'"]'); if(el){ const img=el.querySelector("img.rotimg"); if(img) img.src=r.urls[r.idx]; const pb=el.querySelector(".rotpause"); if(pb) pb.textContent="▶"; } }
-  lbRotId=""; lbHideGrid();
-  $("lightbox").classList.remove("show"); lbResetZoom(); }
+  if(lbRotId && ROT[lbRotId]){ const r=ROT[lbRotId]; const u=lbView()[lbIdx]; const ri=r.urls.indexOf(u); if(ri>=0) r.idx=ri; r.paused=true;
+    const el=document.querySelector('[data-rot="'+lbRotId+'"]'); if(el){ const img=el.querySelector("img.rotimg"); if(img&&r.urls[r.idx]) img.src=r.urls[r.idx]; const pb=el.querySelector(".rotpause"); if(pb) pb.textContent="▶"; } }
+  const dirty=lbDirty, oid=lbOwnerId, okind=lbOwnerKind;
+  lbRotId=""; lbDirty=false; lbCloseGear();
+  $("lightbox").classList.remove("show"); lbResetZoom();
+  if(dirty) lbRefreshUnder(oid,okind); }
+// after a favorite/delete, re-render the gallery beneath the viewer so it reflects the change (scroll kept)
+function lbRefreshUnder(id,kind){ if(!id) return;
+  if(kind==="person" && $("personViewOverlay") && $("personViewOverlay").classList.contains("show")){ const sc=$("personViewOverlay"), y=sc.scrollTop; openPerson(id); sc.scrollTop=y; }
+  else if(kind==="activity" && $("activityViewOverlay") && $("activityViewOverlay").classList.contains("show")){ const sc=$("activityViewOverlay"), y=sc.scrollTop; openActivity(id); sc.scrollTop=y; }
+  if(typeof grActive==="function" && grActive()) grRender(); }
 function lbApply(){ const img=$("lbImg"); if(!img) return; img.style.transform=`translate(${lbX}px,${lbY}px) scale(${lbZoom})`; img.classList.toggle("zoomed",lbZoom>1); }
 function lbResetZoom(){ lbZoom=1; lbX=0; lbY=0; lbApply(); }
-function lbSetZoom(z){ z=Math.max(1,Math.min(5,z)); lbZoom=z; if(lbZoom<=1){ lbX=0; lbY=0; } lbApply(); }   // centered zoom; pan via drag
-function openPersonPhotos(actorId,start){ const a=actorById(actorId); if(a) openLightbox(a.photoURLs,start||0,a.name,actorId); }
+function lbSetZoom(z){ z=Math.max(1,Math.min(5,z)); lbZoom=z; if(lbZoom<=1){ lbX=0; lbY=0; } lbApply(); }
+function lbToggleZoom(){ lbSetZoom(lbZoom>1?1:2.5); }
+// tap zones (single mode): left ⅓ = previous · right ⅓ = next · middle = zoom (or reset when zoomed)
+function lbBodyTap(e){ if(lbSize!==1 || lbMoved) return; const body=$("lbBody"); if(!body) return;
+  if(lbZoom>1){ lbResetZoom(); return; }
+  const rect=body.getBoundingClientRect(), x=(e.clientX-rect.left)/(rect.width||1), view=lbView();
+  if(view.length>1 && x<0.34) lbStep(-1); else if(view.length>1 && x>0.66) lbStep(1); else lbToggleZoom(); }
 
 /* ===== rotating photo component (challenge / rate / tag-me) =====
    rotThumb(urls, opts) returns a .rotthumb div that auto-advances through `urls` at the configured
@@ -1722,7 +1799,7 @@ function rotThumb(urls,opts){ opts=opts||{};
   const id="rot"+(++_rotSeq);
   let start = opts.randomStart && urls.length ? Math.floor(Math.random()*urls.length)   // Challenge: start on a random photo (any of them)
             : (opts.start?Math.max(0,Math.min(opts.start,urls.length-1)):0);
-  ROT[id]={urls,idx:start,paused:rotAllPaused,name:opts.name||"",personId:opts.personId||""};   // new rotators inherit the global play/pause state
+  ROT[id]={urls,idx:start,paused:rotAllPaused,name:opts.name||"",personId:opts.personId||"",skillKey:opts.skillKey||""};   // new rotators inherit the global play/pause state
   const inner = urls.length ? `<img class="rotimg" src="${esc(urls[start])}" referrerpolicy="no-referrer">` : (opts.placeholder||'<div class="ph">👤</div>');
   // no arrows: tap left third = prev, right third = next, middle = open the viewer. Pause toggle stays bottom-right.
   const ctrls = (urls.length>1 && !opts.noCtrl) ? `<button class="rotpause" onclick="event.stopPropagation();rotToggle('${id}',this)">${ROT[id].paused?"▶":"⏸"}</button>` : "";
@@ -1735,7 +1812,11 @@ function rotClick(e,id){ const r=ROT[id]; if(!r) return; const el=e.currentTarge
   if(r.urls.length>1 && x<0.34) rotStep(id,-1);
   else if(r.urls.length>1 && x>0.66) rotStep(id,1);
   else rotOpen(id); }
-function rotOpen(id){ const r=ROT[id]; if(!r||!r.urls.length) return; openLightbox(r.urls,r.idx,r.name||"",r.personId||""); lbRotId=id; }   // open at the current index; remember the source rotator
+function rotOpen(id){ const r=ROT[id]; if(!r||!r.urls.length) return; const cur=r.urls[r.idx];
+  // opened from a skill-tagged rotator → open the FULL library but preset the filter to that skill (so it can be toggled off)
+  if(r.skillKey && r.personId){ const a=actorById(r.personId); if(a){ const full=(a.photoURLs||[]).filter(Boolean);
+    openLightbox(full, Math.max(0,full.indexOf(cur)), r.name||"", r.personId, "person", {filterTag:r.skillKey}); lbRotId=id; return; } }
+  openLightbox(r.urls,r.idx,r.name||"",r.personId||""); lbRotId=id; }   // open at the current index; remember the source rotator
 function rotTick(){ for(const id in ROT){ const el=document.querySelector('[data-rot="'+id+'"]'); if(!el){ delete ROT[id]; continue; }
   const r=ROT[id]; if(r.paused||r.urls.length<2) continue; r.idx=(r.idx+1)%r.urls.length;
   const img=el.querySelector("img.rotimg"); if(img) img.src=r.urls[r.idx]; } }
@@ -3814,7 +3895,7 @@ function twoPhotos(urls){ urls=(urls||[]).filter(Boolean); if(urls.length<=1) re
   return [urls[i],urls[j]]; }
 // two distinct photos drawn from the skill-appropriate set (only skill-tagged ones when the person has any)
 function twoPhotosForSkill(a,skillKey){ return twoPhotos(photosForSkill(a,skillKey)); }
-function rcOpenPhoto(pid,idx){ const a=actorById(pid); if(!a) return; openLightbox(a.photoURLs||[],idx,a.name,pid,"person"); }
+function rcOpenPhoto(pid,idx){ const a=actorById(pid); if(!a) return; openLightbox(a.photoURLs||[],idx,a.name,pid,"person",{filterTag:rateSkillKey}); }
 function applyRateValue(src){   // keep the number field in sync (unless it's the field being typed in)
   if(src!=="num" && $("rateNum")) $("rateNum").value=rateValue.toFixed(2);
 }
@@ -3899,7 +3980,7 @@ function renderRateActorPhoto(){   // centered rotating photo of the selected pe
   const a=rateActorId?actorById(rateActorId):null; const urls=a?photosForSkill(a,rateSkillKey):[];
   if(!urls.length){ box.style.display="none"; box.innerHTML=""; return; }
   box.style.display="flex";
-  box.innerHTML=rotThumb(urls,{name:a.name,personId:a.id,start:0,style:"width:72%;max-width:300px;aspect-ratio:3/4;border-radius:14px"});
+  box.innerHTML=rotThumb(urls,{name:a.name,personId:a.id,start:0,skillKey:rateSkillKey,style:"width:72%;max-width:300px;aspect-ratio:3/4;border-radius:14px"});
 }
 // clear (un-rate) the current person on the current skill → back to "empty"
 function clearRating(){ if(!rateActorId||!rateSkillKey) return; flushRateSave();
@@ -3924,7 +4005,7 @@ function renderRateNear(){
   setMeta("");
   box.innerHTML=pick.length?`<div class="nearrow">`+pick.map(x=>{ const exact=r2(x.v)===target;
     return `<div class="nearcell ${exact?"exact":""}" title="${esc(x.a.name)}">
-      ${rotThumb(photosForSkill(x.a,rateSkillKey),{style:"width:100%;aspect-ratio:3/4;border-radius:10px;cursor:pointer",name:x.a.name,personId:x.a.id,randomStart:!hasPhotoTag(x.a,rateSkillKey),noCtrl:true})}
+      ${rotThumb(photosForSkill(x.a,rateSkillKey),{style:"width:100%;aspect-ratio:3/4;border-radius:10px;cursor:pointer",name:x.a.name,personId:x.a.id,skillKey:rateSkillKey,randomStart:!hasPhotoTag(x.a,rateSkillKey),noCtrl:true})}
       <div class="nn">${esc(x.a.name)}</div></div>`; }).join("")+`</div>`
     :'<div class="small muted">No rated people with photos near this score yet.</div>';
 }
@@ -3962,7 +4043,7 @@ function renderRateChallenge(){
   // each cell is a rotThumb: tap left/right to flip photos, tap middle to open the viewer (with Browse to swap the photo).
   const col=(p,pics,isMe)=>{ const r=ratingOf(p.id,rateSkillKey), rv=r?r.value.toFixed(2):"—", urls=(p.photoURLs||[]).filter(Boolean);
     const cell=(u,badge)=>{ const start=Math.max(0,urls.indexOf(u));
-      const thumb=urls.length?rotThumb(urls,{start,name:p.name,personId:p.id,style:"width:100%;height:100%;border-radius:12px"}):'<div class="rc-ph">👤</div>';
+      const thumb=urls.length?rotThumb(urls,{start,name:p.name,personId:p.id,skillKey:rateSkillKey,style:"width:100%;height:100%;border-radius:12px"}):'<div class="rc-ph">👤</div>';
       return `<div class="rc-cell">${thumb}${badge?`<div class="rc-badge">${rv}${isProvisional(r)?'<span class="provq">?</span>':""}</div>`:""}</div>`; };
     const cells = pics.length?pics.map((u,k)=>cell(u,k===0)).join(""):cell(urls[0]||null,true);
     return `<div class="rc-col"${isMe?' id="rcColMe"':''}>${cells}</div>`; };
@@ -4097,7 +4178,7 @@ function renderChallengeBody(){
   const A=actorById(chPair[0]), B=actorById(chPair[1]), sk=(DB.settings.skills||[]).find(s=>s.key===chSkillKey);
   const card=(p,side)=>{ const urls=photosForSkill(p,chSkillKey); const tagged=hasPhotoTag(p,chSkillKey);
     return `<div style="flex:1;min-width:0;text-align:center">
-    ${rotThumb(urls,{style:"width:100%;aspect-ratio:3/4;border-radius:12px;cursor:pointer",name:p.name,personId:p.id,randomStart:!tagged})}
+    ${rotThumb(urls,{style:"width:100%;aspect-ratio:3/4;border-radius:12px;cursor:pointer",name:p.name,personId:p.id,skillKey:chSkillKey,randomStart:!tagged})}
     <div style="font-weight:600;margin-top:6px">${esc(p.name)}</div></div>`; };
   const sliderLbl = chValue===0?"equal":(chValue<0?`◀ ${esc(A.name)} +${(-chValue).toFixed(1)}`:`${esc(B.name)} +${chValue.toFixed(1)} ▶`);
   body.innerHTML=`
@@ -7674,38 +7755,38 @@ async function init(){
     if(!e.target.closest("#syncPop") && !e.target.closest("#syncBtn")) toggleSyncPop(false);
     if(!e.target.closest(".fdrop")){ document.querySelectorAll(".fmenu").forEach(l=>{l.classList.remove("show");l.classList.remove("right");}); _openFmenu=null; _fSearch={}; pruneReveals(); }
     else if(e.target.closest(".ovf-item")){ document.querySelectorAll(".fmenu").forEach(l=>{l.classList.remove("show");l.classList.remove("right");}); _openFmenu=null; } });
-  // lightbox keyboard nav
+  // image-viewer keyboard nav
   document.addEventListener("keydown",e=>{ if(!$("lightbox").classList.contains("show")) return;
-    if(e.key==="ArrowLeft") lbStep(-1); else if(e.key==="ArrowRight") lbStep(1); else if(e.key==="Escape") closeLightbox(); });
-  // ===== lightbox zoom & pan =====
-  const lbImg=$("lbImg");
-  if(lbImg){
-    // double-click / single-tap toggles 2.5× zoom
-    lbImg.addEventListener("click",e=>{ e.stopPropagation(); lbSetZoom(lbZoom>1?1:2.5); });
-    // mouse wheel zoom
-    lbImg.addEventListener("wheel",e=>{ e.preventDefault(); lbSetZoom(lbZoom*(e.deltaY<0?1.15:0.87)); },{passive:false});
+    if(e.key==="ArrowLeft") lbSwipe(-1); else if(e.key==="ArrowRight") lbSwipe(1); else if(e.key==="Escape") closeLightbox(); });
+  // ===== image-viewer tap zones, zoom & pan (bound once to the persistent body; the <img> is re-created each render) =====
+  const lbBody=$("lbBody");
+  if(lbBody){
+    // a clean tap runs the left/right/center zone logic; a pan (lbMoved) is ignored
+    lbBody.addEventListener("click",e=>lbBodyTap(e));
+    // mouse wheel zoom (single mode)
+    lbBody.addEventListener("wheel",e=>{ if(lbSize!==1||!$("lbImg")) return; e.preventDefault(); lbSetZoom(lbZoom*(e.deltaY<0?1.15:0.87)); },{passive:false});
     // drag to pan while zoomed (mouse)
     let md=false,mx=0,my=0;
-    lbImg.addEventListener("mousedown",e=>{ if(lbZoom<=1) return; e.preventDefault(); md=true; mx=e.clientX; my=e.clientY; });
-    window.addEventListener("mousemove",e=>{ if(!md) return; lbX+=e.clientX-mx; lbY+=e.clientY-my; mx=e.clientX; my=e.clientY; lbApply(); });
-    window.addEventListener("mouseup",()=>{ md=false; });
+    lbBody.addEventListener("mousedown",e=>{ if(lbSize!==1||lbZoom<=1) return; e.preventDefault(); md=true; lbMoved=false; mx=e.clientX; my=e.clientY; });
+    window.addEventListener("mousemove",e=>{ if(!md) return; lbX+=e.clientX-mx; lbY+=e.clientY-my; mx=e.clientX; my=e.clientY; lbMoved=true; lbApply(); });
+    window.addEventListener("mouseup",()=>{ if(md){ md=false; setTimeout(()=>{ lbMoved=false; },0); } });
     // touch: 1-finger pan when zoomed, 2-finger pinch zoom
-    let pStart=0, zStart=1, panX0=0,panY0=0, tx0=0,ty0=0, moved=false;
+    let pStart=0, zStart=1, panX0=0,panY0=0, tx0=0,ty0=0;
     const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
-    lbImg.addEventListener("touchstart",e=>{ if(e.touches.length===2){ pStart=dist(e.touches); zStart=lbZoom; }
-      else if(e.touches.length===1){ moved=false; tx0=e.touches[0].clientX; ty0=e.touches[0].clientY; panX0=lbX; panY0=lbY; } },{passive:true});
-    lbImg.addEventListener("touchmove",e=>{ if(e.touches.length===2){ e.preventDefault(); lbSetZoom(zStart*dist(e.touches)/(pStart||1)); moved=true; }
-      else if(e.touches.length===1 && lbZoom>1){ e.preventDefault(); lbX=panX0+(e.touches[0].clientX-tx0); lbY=panY0+(e.touches[0].clientY-ty0); moved=true; lbApply(); } },{passive:false});
-    lbImg._moved=()=>moved;   // expose to the swipe handler
+    lbBody.addEventListener("touchstart",e=>{ if(lbSize!==1) return;
+      if(e.touches.length===2){ pStart=dist(e.touches); zStart=lbZoom; lbMoved=true; }
+      else if(e.touches.length===1){ lbMoved=false; tx0=e.touches[0].clientX; ty0=e.touches[0].clientY; panX0=lbX; panY0=lbY; } },{passive:true});
+    lbBody.addEventListener("touchmove",e=>{ if(lbSize!==1) return;
+      if(e.touches.length===2){ e.preventDefault(); lbSetZoom(zStart*dist(e.touches)/(pStart||1)); lbMoved=true; }
+      else if(e.touches.length===1 && lbZoom>1){ e.preventDefault(); lbX=panX0+(e.touches[0].clientX-tx0); lbY=panY0+(e.touches[0].clientY-ty0); lbMoved=true; lbApply(); } },{passive:false});
   }
-  // swipe left/right in the photo browser to change photo (tab-swipe intentionally disabled)
+  // swipe left/right to change image (single) or page (grid) — only when not zoomed
   let _sx=0,_sy=0;
   document.addEventListener("touchstart",e=>{ const t=e.touches[0]; _sx=t.clientX; _sy=t.clientY; },{passive:true});
   document.addEventListener("touchend",e=>{
     const t=e.changedTouches[0], dx=t.clientX-_sx, dy=t.clientY-_sy;
     const horiz = Math.abs(dx)>=60 && Math.abs(dx)>=Math.abs(dy)*1.5;
-    // in the photo browser: swipe to change photo only when NOT zoomed (zoomed → drag pans)
-    if($("lightbox").classList.contains("show")){ if(lbZoom<=1 && horiz) lbStep(dx<0?1:-1); }
+    if($("lightbox").classList.contains("show")){ if(lbZoom<=1 && horiz) lbSwipe(dx<0?1:-1); }
   },{passive:true});
 }
 function tabOrder(){ return [...document.querySelectorAll("nav button")].map(b=>b.dataset.tab); }

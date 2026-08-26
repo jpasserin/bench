@@ -1,7 +1,7 @@
 // Bench service worker — cache-first app shell.
 // Bump CACHE on every change (keep it equal to APP_VERSION in index.html) so
 // clients re-fetch the new build after a refresh.
-const CACHE = "bench-388";
+const CACHE = "bench-389";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest",
   "./icon.svg", "./icon-maskable.svg"
