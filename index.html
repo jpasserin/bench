@@ -1503,7 +1503,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "387";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "388";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -5466,25 +5466,29 @@ function insPhotoTagStats(A, phys, ratedIds, thr){
   return {total,nPhoto,nRated,totalPhotos,over40,photosTagged,halfRated,allAttrRated,enoughPhoto,enoughPhotoRated,enoughTagsRated,avgPhotos:nPhoto?totalPhotos/nPhoto:0,perAttr};
 }
 
-/* ===== Daily Insights history (10-day) =====
+/* ===== Daily Insights history =====
    A once-per-day snapshot of the headline Insights numbers is stored in DB.snapshots (keyed by ISO date)
-   and synced to the spreadsheet. The date navigator at the top of the Insights view walks back up to 10
-   days; past days render from their stored snapshot. A metric that wasn't captured on that day (e.g. a
-   skill/attribute added later) shows "no info available"; charts/lookups are live-only (past → grayed). */
-const INS_HIST_DAYS=10;             // today + 9 previous
+   and synced to the spreadsheet. The date navigator at the top of the Insights view walks back through the
+   full recorded history (bounded only by the oldest snapshot); past days render from their stored snapshot.
+   A metric that wasn't captured on that day (e.g. a skill/attribute added later) shows "no info available";
+   charts/lookups are live-only (past → grayed). */
 let insDayOffset=0;                 // 0 = today, negative = days back (reset to today on each app open)
 function isoDay(off){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+(off||0));
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function insDateLabel(off){ if(off===0) return "Today"; if(off===-1) return "Yesterday";
   const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+off);
   return d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"}); }
-function insDayNavHTML(){ const off=insDayOffset, canPrev=off>-(INS_HIST_DAYS-1), canNext=off<0;
+// how far back the navigator can go: to the oldest recorded snapshot (0 = no history yet)
+function insMinOffset(){ const keys=Object.keys(DB.snapshots||{}); if(!keys.length) return 0;
+  const oldest=keys.sort()[0], diff=Math.round((new Date(oldest+"T00:00:00")-new Date(isoDay(0)+"T00:00:00"))/86400000);
+  return Math.min(0,diff); }
+function insDayNavHTML(){ const off=insDayOffset, canPrev=off>insMinOffset(), canNext=off<0;
   return `<div class="card"><div class="spread">
     <button class="primary" ${canPrev?"":"disabled"} onclick="insDayShift(-1)" title="Previous day" style="flex:none;padding:9px 15px;font-weight:700">&lt;</button>
     <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px"><span style="font-weight:700;text-align:center">${esc(insDateLabel(off))}</span><button class="sm" id="insDayTodayBtn" title="Jump to today" onclick="insDayToday()" style="flex:none;padding:4px 9px">⊙</button></div>
     <button class="primary" ${canNext?"":"disabled"} onclick="insDayShift(1)" title="Next day" style="flex:none;padding:9px 15px;font-weight:700">&gt;</button>
   </div></div>`; }
-function insDayShift(d){ insDayOffset=Math.min(0,Math.max(-(INS_HIST_DAYS-1), insDayOffset+d)); insRerender(); }
+function insDayShift(d){ insDayOffset=Math.min(0,Math.max(insMinOffset(), insDayOffset+d)); insRerender(); }
 function insDayToday(){ insDayOffset=0; insRerender(); }
 function insRerender(){ if(insightsKind==="activity") renderActivityInsights(); else renderInsights(); }
 function insNA(){ return '<span class="insna">no info available</span>'; }
@@ -5539,14 +5543,13 @@ function maybeSnapshotToday(){
   DB.snapshots=DB.snapshots||{}; const today=isoDay(0);
   if(DB.snapshots[today]) return;                                           // already have today's
   DB.snapshots[today]={ at:now(), people:peopleInsStats(), activity:activityInsStats() };
-  pruneSnapshots(); DB.snapshotsTs=now(); DB.rev=Math.max(DB.rev||0,DB.snapshotsTs);
+  DB.snapshotsTs=now(); DB.rev=Math.max(DB.rev||0,DB.snapshotsTs);
   save(); scheduleSync();
   if(currentTab()==="ranking"&&rankSub==="insights"&&insDayOffset===0) insRerender();   // reflect a fresh capture if the page is open
 }
-function pruneSnapshots(){ const keys=Object.keys(DB.snapshots||{}).sort(); while(keys.length>INS_HIST_DAYS) delete DB.snapshots[keys.shift()]; }   // ISO dates sort chronologically → drop the oldest
-function mergeSnapshots(local,remote){ const out=Object.assign({},local||{});
+function mergeSnapshots(local,remote){ const out=Object.assign({},local||{});   // union of all recorded days; per-date newest `at` wins — history is unbounded
   for(const d in (remote||{})){ const r=remote[d], l=out[d]; if(!l || (r&&(r.at||0)>(l.at||0))) out[d]=r; }
-  const keys=Object.keys(out).sort(); while(keys.length>INS_HIST_DAYS) delete out[keys.shift()]; return out; }
+  return out; }
 
 function renderInsights(){
   const off=insDayOffset, live=off===0;
