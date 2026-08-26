@@ -386,9 +386,9 @@ body.alt-activity #activityViewOverlay .photogrid .pg{aspect-ratio:16/9}
 /* top row: name on the left, action buttons on the right */
 .lb-top{flex:none;position:relative;display:flex;align-items:center;gap:8px;padding:2px 2px 8px}
 .lb-top .lb-title{flex:1;min-width:0;color:#fff;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lb-actions{flex:none;display:flex;gap:8px}
-.lb-ic{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:10px;
-  width:42px;height:42px;padding:0;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer}
+.lb-actions{flex:none;display:flex;gap:6px}
+.lb-ic{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:9px;
+  width:32px;height:32px;padding:0;display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer}
 .lb-ic:hover{background:rgba(255,255,255,.25)}
 .lb-ic.fav-on{color:var(--gold);border-color:var(--gold)}
 .lb-ic.arm{background:#e0202c;border-color:#ff6b73;color:#fff}
@@ -398,8 +398,8 @@ body.alt-activity #activityViewOverlay .photogrid .pg{aspect-ratio:16/9}
   padding:10px;box-shadow:0 12px 32px -8px rgba(0,0,0,.7);display:flex;flex-direction:column;gap:8px}
 .lb-gear .lb-gsec{font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:700;color:var(--muted)}
 .lb-gear .lb-link{background:var(--bg2);border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:9px 11px;text-align:left;cursor:pointer;font-size:14px}
-.lb-gear .lb-tagfilters{display:flex;flex-wrap:wrap;gap:6px}
-.lb-gear .lb-tf{border-radius:999px;padding:5px 11px;font-size:12px;background:var(--bg2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
+.lb-gear .lb-tagfilters{display:flex;flex-direction:column;gap:6px}
+.lb-gear .lb-tf{border-radius:9px;padding:8px 11px;font-size:13px;text-align:left;background:var(--bg2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
 .lb-gear .lb-tf.on{border-color:var(--accent);color:var(--accent2);background:rgba(120,160,255,.12)}
 .lb-gear .lb-tf.fav.on{border-color:var(--gold);color:var(--gold);background:rgba(224,176,0,.12)}
 .lb-gear .lb-seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
@@ -1302,12 +1302,6 @@ button.boolcap{cursor:pointer;font-family:inherit}
   </div>
 
   <div class="card" data-cat="photos">
-    <h3>Photo rotation</h3>
-    <div class="small muted" style="margin-bottom:8px">How fast photos auto-advance in the Challenge, Rate and Tag&nbsp;Me pages (milliseconds — lower is faster).</div>
-    <div class="row"><input id="rotateMs" type="number" min="200" step="100" style="flex:1"><button class="sm" onclick="saveRotate()">Save</button></div>
-  </div>
-
-  <div class="card" data-cat="photos">
     <h3>Low-quality photo threshold</h3>
     <div class="small muted" style="margin-bottom:8px">In the photo picker, an image is flagged ⚠️ low quality when its <b>short side</b> is under this many pixels. One value covers both portrait and landscape. Lower it to flag fewer images.</div>
     <div class="row"><input id="lowqMinRes" type="number" min="1" step="10" style="flex:1"><button class="sm" onclick="saveLowqMin()">Save</button></div>
@@ -1501,6 +1495,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <div class="lb-actions">
       <button class="lb-ic" id="lbFavBtn" title="Favorite" onclick="lbToggleFav()">☆</button>
       <button class="lb-ic" id="lbDelBtn" title="Delete photo" onclick="lbDeleteTap()">🗑️</button>
+      <button class="lb-ic" id="lbGridBtn" title="Grid view" onclick="lbCycleSize()">▦</button>
       <button class="lb-ic" id="lbGearBtn" title="Settings" onclick="lbToggleGear()">⚙️</button>
     </div>
     <div class="lb-gear" id="lbGear" style="display:none"></div>
@@ -1526,7 +1521,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "389";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "390";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1672,6 +1667,7 @@ function lbRender(){ let view=lbView();
   const ttl=$("lbTitle"); if(ttl) ttl.textContent=lbName||(lbOwnerKind==="activity"?"Activity":"Photos");
   const single=lbSize===1 && !!lbOwnerId;   // favorite/delete act on ONE image
   $("lbFavBtn").style.display=single?"":"none"; $("lbDelBtn").style.display=single?"":"none";
+  const gb=$("lbGridBtn"); if(gb){ const g={1:"□",4:"⊞",12:"▦"}; gb.textContent=g[lbSize]||"▦"; gb.title="View: "+lbSize+" per page — tap to change"; }
   if(lbSize===1) lbRenderSingle(view); else lbRenderGrid(view);
   lbRenderPager(view); if(lbGearOpen) lbRenderGear(); lbUpdateFav(view); }
 function lbRenderSingle(view){ const o=lbOwner(); const u=view[lbIdx];
@@ -1738,8 +1734,8 @@ function lbRenderGear(){ const g=$("lbGear"); if(!g) return; const o=lbOwner(); 
     if(cats.length||hasFav){ html+=`<div class="lb-gsec">Filter photos</div><div class="lb-tagfilters">`;
       if(hasFav) html+=`<button class="lb-tf fav${lbFilter.has("__fav")?" on":""}" onclick="lbToggleFilter('__fav')">★ Favorites</button>`;
       html+=cats.map(s=>`<button class="lb-tf${lbFilter.has(s.key)?" on":""}" onclick="lbToggleFilter('${esc(s.key)}')">${esc(s.label)}</button>`).join("")+`</div>`; } }
-  html+=`<div class="lb-gsec">Photos per view</div><div class="lb-seg">${[1,4,12].map(n=>`<button class="${lbSize===n?"on":""}" onclick="lbSetSize(${n})">${n}</button>`).join("")}</div>`;
-  g.innerHTML=html; }
+  g.innerHTML=html||`<div class="lb-gsec" style="padding:2px">No options</div>`; }
+function lbCycleSize(){ const order=[1,4,12]; lbSetSize(order[(order.indexOf(lbSize)+1)%order.length]); }
 function lbToggleFilter(key){ if(lbFilter.has(key)) lbFilter.delete(key); else lbFilter.add(key); lbIdx=0; lbPage=1; lbRender(); }
 function lbSetSize(n){ if(lbSize===n) return; const view=lbView();
   const globalIdx = lbSize===1 ? lbIdx : (lbPage-1)*lbSize;
@@ -1801,8 +1797,9 @@ function rotThumb(urls,opts){ opts=opts||{};
             : (opts.start?Math.max(0,Math.min(opts.start,urls.length-1)):0);
   ROT[id]={urls,idx:start,paused:rotAllPaused,name:opts.name||"",personId:opts.personId||"",skillKey:opts.skillKey||""};   // new rotators inherit the global play/pause state
   const inner = urls.length ? `<img class="rotimg" src="${esc(urls[start])}" referrerpolicy="no-referrer">` : (opts.placeholder||'<div class="ph">👤</div>');
-  // no arrows: tap left third = prev, right third = next, middle = open the viewer. Pause toggle stays bottom-right.
-  const ctrls = (urls.length>1 && !opts.noCtrl) ? `<button class="rotpause" onclick="event.stopPropagation();rotToggle('${id}',this)">${ROT[id].paused?"▶":"⏸"}</button>` : "";
+  // no arrows: tap left third = prev, right third = next, middle = open the viewer.
+  // (auto-play was removed — the play/pause button is no longer rendered; rotToggle/rotPauseAll code is kept but unused)
+  const ctrls = "";
   const cls="vthumb rotthumb"+(opts.cls?" "+opts.cls:"");
   return `<div class="${cls}" data-rot="${id}" style="${opts.style||""}" onclick="rotClick(event,'${id}')">${inner}${ctrls}</div>`;
 }
@@ -7758,6 +7755,8 @@ async function init(){
   // image-viewer keyboard nav
   document.addEventListener("keydown",e=>{ if(!$("lightbox").classList.contains("show")) return;
     if(e.key==="ArrowLeft") lbSwipe(-1); else if(e.key==="ArrowRight") lbSwipe(1); else if(e.key==="Escape") closeLightbox(); });
+  // any click outside the gear menu (and not on its toggle button) closes it
+  document.addEventListener("click",e=>{ if(!lbGearOpen) return; if(e.target.closest("#lbGear")||e.target.closest("#lbGearBtn")) return; lbCloseGear(); },true);
   // ===== image-viewer tap zones, zoom & pan (bound once to the persistent body; the <img> is re-created each render) =====
   const lbBody=$("lbBody");
   if(lbBody){
