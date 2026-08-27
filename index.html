@@ -534,6 +534,10 @@ button.boolcap{cursor:pointer;font-family:inherit}
 .boolcap[data-state="false"]{border-color:#ff5c6c;color:#ff5c6c}
 .pv-bools{display:flex;flex-wrap:wrap;gap:5px}
 .fschip{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* date navigator (Nominated → week / Insights → day): compact like the People filter card,
+   and pinned just below the app bar while scrolling (--appbar-h measured at runtime) */
+.card.datebar{padding:7px 9px;margin-top:4px;position:sticky;top:var(--appbar-h,46px);z-index:30}
+.card.datebar .spread{align-items:center;min-height:28px}
 
 /* 5-up thumbnail grid (rewards nominees, etc.) */
 .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
@@ -908,11 +912,11 @@ button.boolcap{cursor:pointer;font-family:inherit}
 <!-- ===================== REWARDS ===================== -->
 <section class="tab" id="tab-rewards"><div class="wrap">
   <div id="rewardsView">
-    <div class="card">
+    <div class="card datebar">
       <div class="spread">
-        <button class="primary" onclick="weekShift(-1)" title="Previous week" style="flex:none;padding:9px 15px;font-weight:700">&lt;</button>
+        <button class="primary" onclick="weekShift(-1)" title="Previous week" style="flex:none;padding:5px 14px;font-weight:700">&lt;</button>
         <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px"><select id="weekSelect" onchange="weekJump(this.value)" style="width:auto;max-width:100%;font-weight:700;text-align:center"></select><button class="sm" id="weekTodayBtn" title="Jump to this week" onclick="weekToCurrent()" style="flex:none;padding:4px 9px">⊙</button></div>
-        <button class="primary" onclick="weekShift(1)" title="Next week" style="flex:none;padding:9px 15px;font-weight:700">&gt;</button>
+        <button class="primary" onclick="weekShift(1)" title="Next week" style="flex:none;padding:5px 14px;font-weight:700">&gt;</button>
       </div>
     </div>
     <div id="rewardGroups"></div>
@@ -1526,7 +1530,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "391";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "392";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -5571,10 +5575,10 @@ function insMinOffset(){ const keys=Object.keys(DB.snapshots||{}); if(!keys.leng
   const oldest=keys.sort()[0], diff=Math.round((new Date(oldest+"T00:00:00")-new Date(isoDay(0)+"T00:00:00"))/86400000);
   return Math.min(0,diff); }
 function insDayNavHTML(){ const off=insDayOffset, canPrev=off>insMinOffset(), canNext=off<0;
-  return `<div class="card"><div class="spread">
-    <button class="primary" ${canPrev?"":"disabled"} onclick="insDayShift(-1)" title="Previous day" style="flex:none;padding:9px 15px;font-weight:700">&lt;</button>
+  return `<div class="card datebar"><div class="spread">
+    <button class="primary" ${canPrev?"":"disabled"} onclick="insDayShift(-1)" title="Previous day" style="flex:none;padding:5px 14px;font-weight:700">&lt;</button>
     <div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px"><span style="font-weight:700;text-align:center">${esc(insDateLabel(off))}</span><button class="sm" id="insDayTodayBtn" title="Jump to today" onclick="insDayToday()" style="flex:none;padding:4px 9px">⊙</button></div>
-    <button class="primary" ${canNext?"":"disabled"} onclick="insDayShift(1)" title="Next day" style="flex:none;padding:9px 15px;font-weight:700">&gt;</button>
+    <button class="primary" ${canNext?"":"disabled"} onclick="insDayShift(1)" title="Next day" style="flex:none;padding:5px 14px;font-weight:700">&gt;</button>
   </div></div>`; }
 function insDayShift(d){ insDayOffset=Math.min(0,Math.max(insMinOffset(), insDayOffset+d)); insRerender(); }
 function insDayToday(){ insDayOffset=0; insRerender(); }
@@ -7743,6 +7747,9 @@ async function init(){
   let startTab="rewards"; try{ const t=localStorage.getItem("bench_tab"); if(t&&$("tab-"+t)) startTab=t; }catch(e){}   // reopen on the last page
   showTab(startTab); tabBack=[];   // home tab is the base; nothing to go "back" to from here
   navSetup();                        // phone back button → close overlay / previous tab instead of exiting
+  // pinned date navigators (Nominated week / Insights day) stick just under the app bar → keep the offset exact
+  const syncAppbarH=()=>{ const ab=document.querySelector(".appbar"); if(ab) document.documentElement.style.setProperty("--appbar-h",ab.offsetHeight+"px"); };
+  syncAppbarH(); window.addEventListener("resize",syncAppbarH);
   if(SYNC.on) syncNow(false); else maybeSnapshotToday();   // sync path snapshots after its merge; offline path snapshots from local data now
   if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
   // password lock: start locked, watch for inactivity, re-lock after 5 min idle.
