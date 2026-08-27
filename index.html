@@ -1464,6 +1464,15 @@ button.boolcap{cursor:pointer;font-family:inherit}
     </div>
   </div>
 </div></div>
+<div class="overlay" id="grDelCloseOverlay"><div class="sheet" style="max-width:420px;margin-top:25vh">
+  <div class="card2"><div id="grDelCloseMsg" style="margin-bottom:14px"></div>
+    <div class="row" style="justify-content:flex-end;gap:8px">
+      <button class="sm" onclick="closeOverlay('grDelCloseOverlay')">Cancel</button>
+      <button class="sm" id="grDelCloseDiscard">Discard</button>
+      <button class="primary sm" id="grDelCloseYes">Delete</button>
+    </div>
+  </div>
+</div></div>
 
 <!-- ===================== BULK EDIT (people / activities) ===================== -->
 <div class="overlay" id="bulkOverlay"><div class="sheet" style="max-width:460px;margin-top:10vh">
@@ -1530,7 +1539,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "392";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "393";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7616,9 +7625,25 @@ function grTagNext(){ if(grArmed!=="next"){ grArmed="next"; grRenderTools(); ret
   grDel=new Set(); grMode=""; grTagPick=grPickTagSet();
   if(!grTagPick){ toast("No more people with photos"); return grClose(); }
   if(grRes!=="any") grEnsureQuality(); grRender(); }
-function grClose(){ const wasTag=grBoard==="tag"; if(wasTag) grApplyTagDeletes(); grDel=new Set(); grArmed="";
+function grClose(){ const wasTag=grBoard==="tag";
+  // REVIEW mode: staged deletes are only committed via the footer Delete button. Guard against silently
+  // dropping them if the user marks photos (tap 🗑) then hits Close — warn with Delete / Discard / Cancel.
+  if(!wasTag && grDel.size){ const t=grTarget(), n=grDel.size;
+    return grConfirmDelClose(n,
+      ()=>{ if(t) grRemovePhotos(t,grDel); grFinishClose(false); },   // Delete N, then close
+      ()=>{ grFinishClose(false); }); }                              // Discard, then close
+  if(wasTag) grApplyTagDeletes();
+  grFinishClose(wasTag); }
+function grFinishClose(wasTag){ grDel=new Set(); grArmed="";
   if(wasTag){ if(chSub==="phototag") renderPhotoTag(); }   // embedded board: rebuild the tab (picks a fresh person, or shows the empty-state card)
   else { closeOverlay("galleryReviewOverlay"); const os=$("grSheet"); if(os) os.innerHTML=""; grRefreshCard(); } }
+// Three-way prompt shown when closing the review board with photos still marked for deletion.
+function grConfirmDelClose(n,onDelete,onDiscard){
+  $("grDelCloseMsg").textContent=`You have ${n} photo(s) marked for deletion. Delete them before closing?`;
+  const y=$("grDelCloseYes"), d=$("grDelCloseDiscard"); y.textContent=`🗑 Delete ${n}`;
+  const fin=fn=>()=>{ closeOverlay("grDelCloseOverlay"); y.removeEventListener("click",yf); d.removeEventListener("click",df); fn(); };
+  const yf=fin(onDelete), df=fin(onDiscard);
+  y.addEventListener("click",yf); d.addEventListener("click",df); openOverlay("grDelCloseOverlay"); }
 function grRefreshCard(){ if(grKind==="activity") openActivity(grId); else openPerson(grId); }
 
 /* ============================ init ============================ */
