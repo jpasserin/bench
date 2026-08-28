@@ -1135,10 +1135,9 @@ button.boolcap{cursor:pointer;font-family:inherit}
 <section class="tab" id="tab-challenge"><div class="wrap">
   <div id="challengeView">
     <div class="card">
-      <div class="row" style="align-items:center;gap:10px"><select id="chSkill" onchange="challengeSetSkill()" style="flex:1"></select></div>
-      <div class="row" style="align-items:center;gap:18px;margin-top:9px">
-        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" class="switch" id="chSmartBox" onchange="toggleChSmart(this.checked)"> <span class="small">Smart</span></label>
-        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" class="switch" id="chShowRatingBox" onchange="toggleChShowRating(this.checked)"> <span class="small">Show rating</span></label></div>
+      <div class="row" style="align-items:center;gap:12px"><select id="chSkill" onchange="challengeSetSkill()" style="flex:1;min-width:0"></select>
+        <label style="margin:0;flex:none;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="switch" id="chSmartBox" onchange="toggleChSmart(this.checked)"> <span class="small">Smart</span></label>
+        <label style="margin:0;flex:none;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="switch" id="chShowRatingBox" onchange="toggleChShowRating(this.checked)"> <span class="small">Rating</span></label></div>
       <div id="chBody" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -1541,7 +1540,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "395";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "396";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
