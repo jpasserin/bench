@@ -65,9 +65,9 @@ label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;vertical-align:-1px;animation:spin .7s linear infinite}
 /* rating-change pop-ups: bottom corners, linger longer (separate from the top pill) */
-#ratePop,#ratePopL{position:fixed;top:58px;z-index:80;background:var(--card2);border:1px solid var(--line);
-  border-radius:14px;padding:16px 20px;font-size:18px;font-weight:700;max-width:46vw;
-  box-shadow:0 6px 20px rgba(0,0,0,.5);transition:opacity .3s}
+#ratePop,#ratePopL{position:fixed;top:52px;z-index:80;background:var(--card2);border:1px solid var(--line);
+  border-radius:8px;padding:4px 8px;font-size:10.5px;font-weight:600;max-width:42vw;
+  box-shadow:0 2px 8px rgba(0,0,0,.4);transition:opacity .3s}
 #ratePop{right:14px} #ratePopL{left:14px}
 #ratePop.hide,#ratePopL.hide{opacity:0;pointer-events:none}
 
@@ -1135,8 +1135,10 @@ button.boolcap{cursor:pointer;font-family:inherit}
 <section class="tab" id="tab-challenge"><div class="wrap">
   <div id="challengeView">
     <div class="card">
-      <div class="row" style="align-items:center;gap:10px"><select id="chSkill" onchange="challengeSetSkill()" style="flex:1"></select>
-        <label style="margin:0;flex:none;white-space:nowrap"><input type="checkbox" id="chSmartBox" style="width:auto" onchange="toggleChSmart(this.checked)"> Smart</label></div>
+      <div class="row" style="align-items:center;gap:10px"><select id="chSkill" onchange="challengeSetSkill()" style="flex:1"></select></div>
+      <div class="row" style="align-items:center;gap:18px;margin-top:9px">
+        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" class="switch" id="chSmartBox" onchange="toggleChSmart(this.checked)"> <span class="small">Smart</span></label>
+        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" class="switch" id="chShowRatingBox" onchange="toggleChShowRating(this.checked)"> <span class="small">Show rating</span></label></div>
       <div id="chBody" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -1539,7 +1541,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "394";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "395";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2398,8 +2400,9 @@ async function syncNow(force){
     const changed = syncSig()!==sigBefore;   // only the pull/merge can change local data
     // don't disturb the open view when nothing new arrived (push-only sync), and NEVER yank the board out from
     // under an active photo-tagging session — re-rendering would pick a new random person and lose progress.
-    // The merged data is already in DB; the next Next/close reads it fresh.
-    if(changed && !grTagBusy()) rerenderActive();
+    // Same for the Compare view (chBusy): a background sync must not re-pick the pair mid-comparison.
+    // The merged data is already in DB; the next Next/close/Skip reads it fresh.
+    if(changed && !grTagBusy() && !chBusy()) rerenderActive();
   }catch(e){ setSyncState("Sync error: "+e.message,"err"); }
   finally{ syncing=false; maybeSnapshotToday(); }   // once the freshest data is merged, record today's Insights snapshot (idempotent per day)
 }
@@ -4146,6 +4149,10 @@ function logManualRating(actorId,skillKey,oldV,newV){ recordHistory(actorId,skil
 
 /* ============================ CHALLENGE (Elo) ============================ */
 let chSkillKey=null, chPair=[null,null], chValue=0, chSmart=localStorage.getItem("bench_chsmart")==="1";
+let chShowRating=localStorage.getItem("bench_ch_showrating")!=="0";   // Compare: show/hide the rating badge (default show)
+function toggleChShowRating(on){ chShowRating=on; localStorage.setItem("bench_ch_showrating",on?"1":"0"); renderChallengeBody(); }
+// don't let a background sync re-render the Compare view out from under an in-progress comparison (like grTagBusy for the tag board)
+function chBusy(){ const a=document.querySelector(".tab.active"); return !!a && a.id==="tab-challenge" && chSub==="challenge"; }
 function history(){ return (DB.history||[]).filter(h=>!h.deleted); }
 function chRatedPeople(skillKey){ return actors().filter(a=>actorThumb(a) && ratingsOf(a.id).some(r=>r.skillKey===skillKey)); }   // need a photo to appear in challenges
 function chEligibleSkills(){ return (DB.settings.skills||[]).filter(s=>chRatedPeople(s.key).length>=2); }
@@ -4165,6 +4172,7 @@ function renderChallenge(){
   if(chSub==="phototag"){ renderPhotoTag(); return; }
   const elig=chEligibleSkills(), sel=$("chSkill");
   if($("chSmartBox")) $("chSmartBox").checked=chSmart;
+  if($("chShowRatingBox")) $("chShowRatingBox").checked=chShowRating;
   sel.innerHTML=elig.length?elig.map(s=>`<option value="${esc(s.key)}">${esc(s.label)}</option>`).join(""):'<option value="">Need ≥2 rated people</option>';
   if(!chSkillKey){ try{ const s=localStorage.getItem("bench_ch_skill"); if(s) chSkillKey=s; }catch(e){} }   // remember last skill
   if(!chSkillKey||!elig.some(s=>s.key===chSkillKey)){ chSkillKey=elig[0]?elig[0].key:null; chPair=[null,null]; }
@@ -4197,7 +4205,7 @@ function renderChallengeBody(){
     const pics=twoPhotosForSkill(p,chSkillKey);
     const cell=(u,badge)=>{ const start=Math.max(0,urls.indexOf(u));
       const thumb=urls.length?rotThumb(urls,{start,name:p.name,personId:p.id,skillKey:chSkillKey,style:"width:100%;height:100%;border-radius:12px"}):'<div class="rc-ph">👤</div>';
-      return `<div class="rc-cell">${thumb}${badge?`<div class="rc-badge">${rv}${isProvisional(r)?'<span class="provq">?</span>':""}</div>`:""}</div>`; };
+      return `<div class="rc-cell">${thumb}${badge&&chShowRating?`<div class="rc-badge">${rv}${isProvisional(r)?'<span class="provq">?</span>':""}</div>`:""}</div>`; };
     const cells = pics.length?pics.map((u,k)=>cell(u,k===0)).join(""):cell(urls[0]||null,true);
     return `<div class="rc-col ch-col"><div class="ch-name">${esc(p.name)}</div>${cells}</div>`; };
   const sliderLbl = chValue===0?"equal":(chValue<0?`◀ ${esc(A.name)} +${(-chValue).toFixed(1)}`:`${esc(B.name)} +${chValue.toFixed(1)} ▶`);
