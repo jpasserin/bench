@@ -1540,7 +1540,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "396";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "397";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -4206,7 +4206,7 @@ function renderChallengeBody(){
       const thumb=urls.length?rotThumb(urls,{start,name:p.name,personId:p.id,skillKey:chSkillKey,style:"width:100%;height:100%;border-radius:12px"}):'<div class="rc-ph">👤</div>';
       return `<div class="rc-cell">${thumb}${badge&&chShowRating?`<div class="rc-badge">${rv}${isProvisional(r)?'<span class="provq">?</span>':""}</div>`:""}</div>`; };
     const cells = pics.length?pics.map((u,k)=>cell(u,k===0)).join(""):cell(urls[0]||null,true);
-    return `<div class="rc-col ch-col"><div class="ch-name">${esc(p.name)}</div>${cells}</div>`; };
+    return `<div class="rc-col ch-col">${cells}</div>`; };   // name shown only near the slider below
   const sliderLbl = chValue===0?"equal":(chValue<0?`◀ ${esc(A.name)} +${(-chValue).toFixed(1)}`:`${esc(B.name)} +${chValue.toFixed(1)} ▶`);
   body.innerHTML=`
     <div class="rc-grid ch-grid">${col(A)}${col(B)}</div>
