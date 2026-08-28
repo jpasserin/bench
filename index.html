@@ -1539,7 +1539,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "393";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "394";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -4259,11 +4259,15 @@ function challengeSubmit(){
    Tag a person's photos with physical attributes so duels/rating surface the best-matching
    photo first. Stored on the person as a.photoTags = { [url]: [skillKey,...] }. */
 function photoTagsOf(a,url){ return (a && a.photoTags && a.photoTags[url]) || []; }
-function togglePhotoTag(personId,url,skillKey){ const a=actorById(personId); if(!a||!url) return false;
+function togglePhotoTag(personId,url,skillKey){
+  // prefer the open actor editor's draft (same reason as grTarget/lbOwner: mutate the live draft, not the DB copy the draft will overwrite)
+  const draft=($("actorOverlay")&&$("actorOverlay").classList.contains("show")&&window.__draftActor&&window.__draftActor.id===personId)?window.__draftActor:null;
+  const a=draft||actorById(personId); if(!a||!url) return false;
   a.photoTags=a.photoTags||{}; const arr=(a.photoTags[url]||[]).slice(); const i=arr.indexOf(skillKey);
   if(i>=0) arr.splice(i,1); else arr.push(skillKey);
   if(arr.length) a.photoTags[url]=arr; else delete a.photoTags[url];
-  a.updatedAt=now(); DB.rev=Math.max(DB.rev||0,a.updatedAt); commit();
+  a.updatedAt=now(); DB.rev=Math.max(DB.rev||0,a.updatedAt);
+  if(a===window.__draftActor){ refreshPhotoStrip(); autoSaveDraft(); } else commit();
   return i<0; }   // returns true when the photo is now tagged
 // photos to use when rating/comparing a skill: ONLY those tagged for skillKey when the person has any;
 // otherwise (no photo tagged for this skill — e.g. personality skills) fall back to the whole library.
@@ -7412,7 +7416,14 @@ let grRes=localStorage.getItem("bench_gr_res")||"any";         // resolution fil
 let grRatedOnly=localStorage.getItem("bench_gr_rated")!=="0";  // TAG mode: only fully-rated people (default on)
 if([1,4,12].indexOf(grGrid)<0) grGrid=1;
 function grTarget(){ if(grBoard==="tag") return grTagPick?actorById(grTagPick):null;
+  const d=grDraftFor(); if(d) return d;   // review opened from an open editor → mutate its DRAFT, not the DB copy (else the draft's autosave clobbers our fav/delete)
   return grKind==="activity" ? events().find(x=>x.id===grId) : actorById(grId); }
+// The open editor's draft when it matches this review target (mirrors lbOwner). null when no editor is open.
+function grDraftFor(){ if(grBoard!=="review") return null;
+  if(grKind==="activity"){ return ($("eventOverlay")&&$("eventOverlay").classList.contains("show")&&window.__draftEvent&&window.__draftEvent.id===grId)?window.__draftEvent:null; }
+  return ($("actorOverlay")&&$("actorOverlay").classList.contains("show")&&window.__draftActor&&window.__draftActor.id===grId)?window.__draftActor:null; }
+// Route a board mutation like the lightbox: a draft edit updates the editor strip + autosaves; otherwise commit.
+function grCommit(t){ if(t===window.__draftActor||t===window.__draftEvent){ refreshPhotoStrip(); autoSaveDraft(); } else commit(); }
 function grResetCommon(){ grMode=""; grPage=1; grDel=new Set(); grArmed=""; grQual={}; grQualSeq++; grHidden=new Set(); }
 // The shared board markup, injected into whichever host is active (overlay for review, #phototagView for tag).
 // The ⚙️ gear lives in the top-right corner of both boards; its menu is right-aligned so it stays on-screen.
@@ -7585,13 +7596,13 @@ function grRenderFoot(){ const foot=$("grFoot"); if(!foot) return;
   } }
 // Shared photo mutations (used by both the 1-up tool buttons and the grid tap handler, and by delete).
 function grToggleFav(t,u){ t.profilePics=t.profilePics||[]; const j=t.profilePics.indexOf(u); if(j>=0) t.profilePics.splice(j,1); else t.profilePics.push(u);
-  const ts=now(); t.updatedAt=ts; DB.rev=Math.max(DB.rev||0,ts); commit(); }
+  const ts=now(); t.updatedAt=ts; DB.rev=Math.max(DB.rev||0,ts); grCommit(t); }
 // Remove a set of URLs from a record (urls + profile picks + their tags), then stamp + commit.
 function grRemovePhotos(t,del){ if(!t||!del||!del.size) return;
   t.photoURLs=(t.photoURLs||[]).filter(u=>!del.has(u));
   if(t.profilePics) t.profilePics=t.profilePics.filter(u=>!del.has(u));
   if(t.photoTags) del.forEach(u=>{ if(t.photoTags[u]) delete t.photoTags[u]; });
-  const ts=now(); t.updatedAt=ts; DB.rev=Math.max(DB.rev||0,ts); commit(); }
+  const ts=now(); t.updatedAt=ts; DB.rev=Math.max(DB.rev||0,ts); grCommit(t); }
 // grGrid==1: tool buttons act on the single shown photo directly (fav/tag toggle immediately, delete stages).
 function grTool(action){ const t=grTarget(); if(!t) return; const u=grViewUrls()[0]; if(!u) return;
   if(action==="fav"){ grToggleFav(t,u); grRenderStage(); grRenderTools(); return; }
@@ -7635,8 +7646,10 @@ function grClose(){ const wasTag=grBoard==="tag";
   if(wasTag) grApplyTagDeletes();
   grFinishClose(wasTag); }
 function grFinishClose(wasTag){ grDel=new Set(); grArmed="";
-  if(wasTag){ if(chSub==="phototag") renderPhotoTag(); }   // embedded board: rebuild the tab (picks a fresh person, or shows the empty-state card)
-  else { closeOverlay("galleryReviewOverlay"); const os=$("grSheet"); if(os) os.innerHTML=""; grRefreshCard(); } }
+  if(wasTag){ if(chSub==="phototag") renderPhotoTag(); return; }   // embedded board: rebuild the tab (picks a fresh person, or shows the empty-state card)
+  const draft=grDraftFor();   // opened from an editor → return to it (its strip is already live); don't stack the read-only view, whose DB read would be stale until the draft autosave flushes
+  closeOverlay("galleryReviewOverlay"); const os=$("grSheet"); if(os) os.innerHTML="";
+  if(draft) refreshPhotoStrip(); else grRefreshCard(); }
 // Three-way prompt shown when closing the review board with photos still marked for deletion.
 function grConfirmDelClose(n,onDelete,onDiscard){
   $("grDelCloseMsg").textContent=`You have ${n} photo(s) marked for deletion. Delete them before closing?`;
