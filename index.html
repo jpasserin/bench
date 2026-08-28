@@ -327,8 +327,9 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 #phototagView.grhost .grfoot{flex:0 0 auto;padding:8px 0 2px}
 /* gear settings menu (resolution / grid / rated-only) — shared by both hosts */
 .grgearmenu{min-width:210px;padding:6px;overflow:auto}
+.grgearmenu>*{flex:0 0 auto}   /* don't let a tall menu squash the res/grid rows — scroll instead */
 .grtagfilter{display:flex;flex-direction:column;gap:4px;margin-bottom:2px}
-.grtagfilter button{width:100%;text-align:left;padding:8px 10px;border-radius:8px;font-size:13px}
+.grtagfilter button{width:100%;text-align:left;padding:5px 10px;border-radius:8px;font-size:13px}
 .grtagfilter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .grgear-sec{font-size:11px;color:var(--muted);margin:7px 4px 4px;text-transform:uppercase;letter-spacing:.4px}
 .grgear-sec:first-child{margin-top:2px}
@@ -1546,7 +1547,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "399";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "400";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
