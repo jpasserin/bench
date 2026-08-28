@@ -326,7 +326,10 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 #phototagView.grhost #grGallery.g1 .g img{object-fit:contain}
 #phototagView.grhost .grfoot{flex:0 0 auto;padding:8px 0 2px}
 /* gear settings menu (resolution / grid / rated-only) — shared by both hosts */
-.grgearmenu{min-width:210px;padding:6px}
+.grgearmenu{min-width:210px;padding:6px;overflow:auto}
+.grtagfilter{display:flex;flex-direction:column;gap:4px;margin-bottom:2px}
+.grtagfilter button{width:100%;text-align:left;padding:8px 10px;border-radius:8px;font-size:13px}
+.grtagfilter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .grgear-sec{font-size:11px;color:var(--muted);margin:7px 4px 4px;text-transform:uppercase;letter-spacing:.4px}
 .grgear-sec:first-child{margin-top:2px}
 .grgearmenu .seg.full{margin-bottom:2px}
@@ -1543,7 +1546,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "398";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "399";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7418,6 +7421,7 @@ let grKind="", grId="", grMode="", grPage=1;
 let grDel=new Set();     // urls staged for deletion
 let grQual={};           // url -> short-side px, filled by grEnsureQuality (drives the quality dot + resolution filter)
 let _grResortT=null, grQualSeq=0, grHidden=new Set();   // urls hidden by the 🏷️ toggle (a manual snapshot, not a live filter)
+let grTagFilter=null;   // review board tag filter (gear menu): null / full / empty = show all; a strict subset = show only photos carrying an enabled tag ("fav" = favorite)
 let grTagPick=null;   // TAG mode: current person id
 let grTagView=[];   // TAG mode: the FROZEN set of photos shown for the current person — tagging a photo mustn't reshuffle/hide it; only Next/Back (or a res/grid change) re-picks
 function grTagSnapshot(){ grTagView = grBoard==="tag" ? grTagAllUrls().slice(0,grGrid) : []; }
@@ -7434,7 +7438,14 @@ function grDraftFor(){ if(grBoard!=="review") return null;
   return ($("actorOverlay")&&$("actorOverlay").classList.contains("show")&&window.__draftActor&&window.__draftActor.id===grId)?window.__draftActor:null; }
 // Route a board mutation like the lightbox: a draft edit updates the editor strip + autosaves; otherwise commit.
 function grCommit(t){ if(t===window.__draftActor||t===window.__draftEvent){ refreshPhotoStrip(); autoSaveDraft(); } else commit(); }
-function grResetCommon(){ grMode=""; grPage=1; grDel=new Set(); grArmed=""; grQual={}; grQualSeq++; grHidden=new Set(); }
+function grResetCommon(){ grMode=""; grPage=1; grDel=new Set(); grArmed=""; grQual={}; grQualSeq++; grHidden=new Set(); grTagFilter=null; }
+// Available tag-filter keys for the current review target: ⭐ favorite + (person only) the physical skill tags.
+function grTagKeys(){ const ks=["fav"]; if(grKind!=="activity") skillsByCat("physical").forEach(s=>ks.push(s.key)); return ks; }
+function grTagFiltering(){ if(grBoard!=="review"||!grTagFilter) return false; const all=grTagKeys().length; return grTagFilter.size>0 && grTagFilter.size<all; }
+function grPhotoHasTag(t,u,key){ return key==="fav" ? (t.profilePics||[]).includes(u) : photoTagsOf(t,u).indexOf(key)>=0; }
+function grToggleTagKey(key){ if(!grTagFilter) grTagFilter=new Set(grTagKeys());   // first toggle starts from "all on" then removes this one
+  if(grTagFilter.has(key)) grTagFilter.delete(key); else grTagFilter.add(key);
+  grPage=1; grKeepGearOpen(); }
 // The shared board markup, injected into whichever host is active (overlay for review, #phototagView for tag).
 // The ⚙️ gear lives in the top-right corner of both boards; its menu is right-aligned so it stays on-screen.
 function grBoardHTML(){ return `
@@ -7480,12 +7491,16 @@ function grToggleGear(){ const m=$("grGearMenu"); if(!m) return; const show=!m.c
 function grRenderGear(){ const m=$("grGearMenu"); if(!m) return;
   const resOpt=(v,dot,name)=>`<button class="${grRes===v?"on":""}" title="${name}" onclick="grSetRes('${v}')">${dot}</button>`;
   const gridOpt=n=>`<button class="${grGrid===n?"on":""}" onclick="grSetGrid(${n})">${n}</button>`;
+  const tagKeys=grBoard==="review"?grTagKeys():[];
+  const tagRow=k=>{ const lbl=k==="fav"?"⭐ Favorite":(()=>{ const s=(DB.settings.skills||[]).find(x=>x.key===k); return esc(s?s.label:k); })();
+    const on=!grTagFilter||grTagFilter.has(k); return `<button class="${on?"on":""}" onclick="grToggleTagKey('${attrJs(k)}')">${lbl}</button>`; };
   m.innerHTML=`
     <div class="grgear-sec">Resolution</div>
     <div class="seg full">${resOpt("any","🔵","Any")}${resOpt("high","🟢","High")}${resOpt("med","🟡","Med")}${resOpt("low","🔴","Low")}</div>
     <div class="grgear-sec">Photos per view</div>
     <div class="seg full">${gridOpt(1)}${gridOpt(4)}${gridOpt(12)}</div>
-    ${grBoard==="tag"?`<label><input type="checkbox" ${grRatedOnly?"checked":""} onchange="grToggleRated()"> Fully-rated people only</label>`:""}`; }
+    ${grBoard==="tag"?`<label><input type="checkbox" ${grRatedOnly?"checked":""} onchange="grToggleRated()"> Fully-rated people only</label>`:""}
+    ${tagKeys.length?`<div class="grgear-sec">Tags</div><div class="grtagfilter">${tagKeys.map(tagRow).join("")}</div>`:""}`; }
 // Off-screen-load the target's photo dimensions so the resolution filter + quality dots know the short
 // side of every photo, not just the ones on the current page. Cached in grQual; re-renders as results land.
 function grEnsureQuality(){ const t=grTarget(); if(!t) return; const seq=++grQualSeq;
@@ -7542,6 +7557,7 @@ function grTagAllUrls(){ const a=grTarget(); if(!a) return [];
   return urls.filter(u=>!photoTagsOf(a,u).length); }
 function grOrderedUrls(){ const t=grTarget(); let urls=(t&&t.photoURLs||[]).filter(Boolean);
   if(grHidden.size) urls=urls.filter(u=>!grHidden.has(u));   // hide the URLs snapshotted by the 🏷️ button
+  if(t && grTagFiltering()) urls=urls.filter(u=>[...grTagFilter].some(k=>grPhotoHasTag(t,u,k)));   // gear-menu tag filter
   return grResFilter(urls,false); }
 // The photos visible in the stage right now (tag: first grGrid of the person; review: current page).
 function grViewUrls(){ if(grBoard==="tag") return grTagView.slice();   // the frozen snapshot (re-picked only at grRender / async quality landing)
