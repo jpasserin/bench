@@ -1226,6 +1226,18 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <div class="small" id="lowqScanOut" style="margin-top:8px"></div>
   </div>
 
+  <div class="card" data-cat="photos">
+    <h3>🩹 Restore photo tags</h3>
+    <div class="small muted" style="margin-bottom:8px">Recover photo tags lost to a stale-device sync. In the Google Sheet: <b>File → Version history → See version history</b>, open a version from <b>before</b> the loss, select the whole <b>Actors</b> tab (header row included), copy, and paste it below. This only <b>adds back</b> missing tags — it never removes anything — then stamps the rows so the fix wins the next sync. <b>Preview</b> first, then <b>Apply</b>.</div>
+    <textarea id="ptRestoreText" placeholder="Paste the Actors sheet here — include the header row (ActorID … PhotoTagsJSON …)" style="min-height:90px"></textarea>
+    <div class="row" style="margin-top:8px;gap:8px">
+      <button class="sm" onclick="ptRestorePreview()">Preview</button>
+      <button class="sm primary" id="ptRestoreApplyBtn" onclick="ptRestoreApply()" style="display:none">Apply restore</button>
+      <span id="ptRestoreMsg" class="small muted"></span>
+    </div>
+    <div class="small" id="ptRestoreOut" style="margin-top:8px"></div>
+  </div>
+
   <div class="card" data-cat="ratings">
     <h3>Skills (ratings)</h3>
     <div id="setSkills"></div>
@@ -1547,7 +1559,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "400";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "401";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -6475,6 +6487,70 @@ function storageBreakdown(){
   DB.events.forEach(e=>{ (e.photoURLs||[]).forEach(scan); (e.links||[]).forEach(l=>scan(l&&l.url)); });
   return { lines, dataUris };
 }
+// ---- Restore photo tags (recovery from a whole-record LWW clobber) --------------------------------
+// A stale device can out-rank a good record on updatedAt and its shorter photoTags replaces the full set
+// (mergeList is whole-record last-writer-wins). This tool takes a historical Actors-sheet paste and
+// UNION-merges the tags back — it only ever ADDS missing tags, never removes — then bumps updatedAt so
+// the restore wins the next sync instead of being re-clobbered.
+// Parse ONE clipboard line into TSV fields. Quotes are only special at a field's start (RFC-4180 style,
+// how Google Sheets escapes cells that contain quotes: wrap in "…", inner " doubled to "").
+function ptParseTsvLine(line){ const out=[]; let cur="", inQ=false, atStart=true;
+  for(let i=0;i<line.length;i++){ const c=line[i];
+    if(inQ){ if(c==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else inQ=false; } else cur+=c; }
+    else if(c==='\t'){ out.push(cur); cur=""; atStart=true; }
+    else if(c==='"'&&atStart){ inQ=true; atStart=false; }
+    else { cur+=c; atStart=false; } }
+  out.push(cur); return out; }
+// Pull {id, photoTags} rows out of a pasted Actors sheet, locating columns by header name.
+function ptParseRestore(text){
+  const rows=String(text||"").replace(/\r/g,"").split("\n").filter(l=>l.length);
+  if(!rows.length) return {error:"Nothing pasted."};
+  const head=ptParseTsvLine(rows[0]).map(h=>h.trim().toLowerCase());
+  const idIdx=head.indexOf("actorid"), ptIdx=head.indexOf("phototagsjson");
+  if(idIdx<0||ptIdx<0) return {error:"Couldn't find the ActorID and PhotoTagsJSON columns in the header row. Paste the whole Actors sheet, header row included."};
+  const recs=[]; let bad=0;
+  for(let i=1;i<rows.length;i++){ const f=ptParseTsvLine(rows[i]); const id=(f[idIdx]||"").trim(), raw=(f[ptIdx]||"").trim();
+    if(!id||!raw||raw==="{}") continue;
+    let pt=null; try{ pt=JSON.parse(raw); }catch(e){ bad++; continue; }
+    if(pt&&typeof pt==="object") recs.push({id,pt}); }
+  return {recs,bad}; }
+// Compute what would change: for each pasted person, union restored tags into current tags on photos that
+// still exist. Records only the ADDITIONS (never a removal). Orphan = tag for a photo the person no longer has.
+function ptBuildRestorePlan(recs){
+  const norm=arr=>Array.from(new Set((arr||[]).filter(Boolean)));
+  const changes=[]; let missing=0, addedTags=0, orphan=0;
+  (recs||[]).forEach(({id,pt})=>{ const a=actorById(id); if(!a){ missing++; return; }
+    const have=new Set(a.photoURLs||[]), cur=a.photoTags||{}, add={};
+    for(const u in pt){ if(!have.has(u)){ orphan+=norm(pt[u]).length; continue; }
+      const nowT=norm(cur[u]), oldT=norm(pt[u]), merged=Array.from(new Set(nowT.concat(oldT)));
+      if(merged.length>nowT.length){ add[u]=merged; addedTags+=merged.length-nowT.length; } }
+    if(Object.keys(add).length) changes.push({id,name:a.name||id,add}); });
+  return {changes,missing,addedTags,orphan}; }
+let _ptRestorePlan=null;
+function ptRestorePreview(){
+  const parsed=ptParseRestore(($("ptRestoreText")||{}).value);
+  $("ptRestoreMsg").textContent="";
+  if(parsed.error){ _ptRestorePlan=null; $("ptRestoreApplyBtn").style.display="none"; $("ptRestoreOut").innerHTML=`<span style="color:var(--bad)">${esc(parsed.error)}</span>`; return; }
+  const plan=ptBuildRestorePlan(parsed.recs); _ptRestorePlan=plan;
+  const list=plan.changes.slice(0,20).map(c=>`${esc(c.name)} — +${Object.values(c.add).reduce((n,v)=>n+v.length,0)} on ${Object.keys(c.add).length} photo(s)`).join("<br>");
+  $("ptRestoreApplyBtn").style.display=plan.changes.length?"":"none";
+  $("ptRestoreOut").innerHTML=`Parsed <b>${parsed.recs.length}</b> row(s)${parsed.bad?` · <span style="color:var(--bad)">${parsed.bad} unparseable</span>`:""}.<br>`+
+    (plan.changes.length
+      ? `Will restore tags on <b>${plan.changes.length}</b> people (<b>+${plan.addedTags}</b> tags).`+
+        (plan.missing?`<br><span class="muted">${plan.missing} pasted people not found locally (skipped).</span>`:"")+
+        (plan.orphan?`<br><span class="muted">${plan.orphan} tags were for photos that no longer exist (skipped).</span>`:"")+
+        `<div style="margin-top:8px">${list}${plan.changes.length>20?`<br><span class="muted">…and ${plan.changes.length-20} more</span>`:""}</div>`
+      : `<b>Nothing to restore</b> — your current tags already include everything in the paste.`); }
+async function ptRestoreApply(){
+  const plan=_ptRestorePlan; if(!plan||!plan.changes.length) return;
+  const t=now(); let n=0;
+  plan.changes.forEach(c=>{ const a=actorById(c.id); if(!a) return; a.photoTags=a.photoTags||{};
+    for(const u in c.add) a.photoTags[u]=c.add[u];
+    a.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); n++; });
+  save(); $("ptRestoreMsg").textContent="Pushing…";
+  try{ await syncNow(true); $("ptRestoreMsg").textContent=`Restored ${plan.addedTags} tags on ${n} people ✓ — now update/refresh your other devices.`; }
+  catch(e){ $("ptRestoreMsg").textContent="Saved locally; sync failed — "+e.message; }
+  _ptRestorePlan=null; $("ptRestoreApplyBtn").style.display="none"; $("ptRestoreText").value=""; $("ptRestoreOut").innerHTML=""; rerenderActive(); }
 function saveSyncCfg(){ SYNC.url=$("syncUrl").value.trim(); SYNC.secret=$("syncSecret").value.trim(); SYNC.on=$("syncOn").checked; saveSync(); }
 function addCat(){ const v=$("newCat").value.trim(); if(!v)return; const s=DB.settings.categories=DB.settings.categories||[];
   if(!s.some(c=>c.label.toLowerCase()===v.toLowerCase())) s.push({id:uid("cat"),label:v}); $("newCat").value=""; bumpSettings(); commit(); renderSettings(); }
