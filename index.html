@@ -1228,10 +1228,12 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
   <div class="card" data-cat="photos">
     <h3>🩹 Restore photo tags</h3>
-    <div class="small muted" style="margin-bottom:8px">Recover photo tags lost to a stale-device sync. In the Google Sheet: <b>File → Version history → See version history</b>, open a version from <b>before</b> the loss, select the whole <b>Actors</b> tab (header row included), copy, and paste it below. This only <b>adds back</b> missing tags — it never removes anything — then stamps the rows so the fix wins the next sync. <b>Preview</b> first, then <b>Apply</b>.</div>
-    <textarea id="ptRestoreText" placeholder="Paste the Actors sheet here — include the header row (ActorID … PhotoTagsJSON …)" style="min-height:90px"></textarea>
+    <div class="small muted" style="margin-bottom:8px">Recover photo tags lost to a stale-device sync, from a Google Sheet version from <b>before</b> the loss (open <b>File → Version history</b>, then <b>⋮ → Make a copy</b> of that version). <b>Best for lots of data:</b> in that copy, <b>File → Download → Comma-separated values (.csv)</b> with the <b>Actors</b> tab active, then <b>Load file…</b> below. Or select the whole Actors tab (header row included), copy, paste it, and <b>Preview paste</b>. This only <b>adds back</b> missing tags — never removes anything — then stamps the rows so the fix wins the next sync. <b>Preview</b> first, then <b>Apply</b>.</div>
+    <textarea id="ptRestoreText" placeholder="…or paste the Actors sheet here — include the header row (ActorID … PhotoTagsJSON …)" style="min-height:90px"></textarea>
+    <input type="file" id="ptRestoreFile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" style="display:none" onchange="ptRestoreLoadFile(this)">
     <div class="row" style="margin-top:8px;gap:8px">
-      <button class="sm" onclick="ptRestorePreview()">Preview</button>
+      <button class="sm" onclick="document.getElementById('ptRestoreFile').click()">📁 Load file…</button>
+      <button class="sm" onclick="ptRestorePreview()">Preview paste</button>
       <button class="sm primary" id="ptRestoreApplyBtn" onclick="ptRestoreApply()" style="display:none">Apply restore</button>
       <span id="ptRestoreMsg" class="small muted"></span>
     </div>
@@ -1559,7 +1561,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "401";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "402";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2331,10 +2333,32 @@ let lastPushedSig=null, lastSeenRev=0;   // session baselines: skip a sync when 
 function scheduleSync(){ if(PRIVATE||suppressSync||!SYNC.on) return; clearTimeout(syncT); syncT=setTimeout(()=>syncNow(false),900); }
 function flushSync(){ if(PRIVATE||suppressSync||!SYNC.on) return; clearTimeout(syncT); syncNow(false); }
 
-function mergeList(local,remote){
+// Whole-record last-writer-wins on updatedAt, with an optional per-record `reconcile(winner,loser)` hook
+// so a collection can salvage additive fields from the LOSING copy (see reconcileActor: photoTags union).
+function mergeList(local,remote,reconcile){
   const map={}; (local||[]).forEach(r=>map[r.id]=r);
-  (remote||[]).forEach(r=>{ const ex=map[r.id]; if(!ex || (r.updatedAt||0)>(ex.updatedAt||0)) map[r.id]=r; });
+  (remote||[]).forEach(r=>{ const ex=map[r.id];
+    if(!ex){ map[r.id]=r; return; }
+    const winner=(r.updatedAt||0)>(ex.updatedAt||0)?r:ex, loser=(winner===r)?ex:r;   // tie → local (ex) wins, as before
+    map[r.id]=reconcile?reconcile(winner,loser):winner; });
   return Object.values(map);
+}
+// Merge two photoTags maps ({url:[skillKey,...]}) into a de-duped union — the superset of both.
+function unionPhotoTags(a,b){ const out={}; [a||{},b||{}].forEach(pt=>{ for(const u in pt){ const cur=out[u]||[];
+  out[u]=Array.from(new Set(cur.concat((pt[u]||[]).filter(Boolean)))); } }); return out; }
+function samePhotoTags(a,b){ a=a||{}; b=b||{}; const ka=Object.keys(a), kb=Object.keys(b); if(ka.length!==kb.length) return false;
+  for(const u of ka){ if(!(u in b)) return false; const sa=new Set(a[u]||[]), sb=new Set(b[u]||[]); if(sa.size!==sb.size) return false;
+    for(const x of sa) if(!sb.has(x)) return false; } return true; }
+// Actor reconcile: take the newer record wholesale, but UNION photoTags from both copies so a stale device
+// (older content, newer updatedAt) can never subtract tags. When the union actually adds something neither
+// side alone had, bump updatedAt so the merged superset out-ranks every device and converges (idempotent:
+// once a device holds the superset, union===winner → no re-bump, no ping-pong).
+function reconcileActor(winner,loser){
+  const merged=unionPhotoTags(winner.photoTags,loser.photoTags);
+  if(samePhotoTags(winner.photoTags,merged)) return winner;   // winner already ⊇ loser's tags → nothing to salvage
+  const t=now(), out=Object.assign({},winner,{photoTags:merged});   // loser had tags the winner lacked → new combined superset
+  out.updatedAt=t; DB.rev=Math.max(DB.rev||0,t);                    // re-stamp so the merged superset out-ranks every device (converges; idempotent once everyone holds it)
+  return out;
 }
 function maxTs(){
   let m=Math.max(DB.settingsTs||0, DB.rateQueueTs||0, DB.snapshotsTs||0);
@@ -2374,7 +2398,7 @@ async function syncNow(force){
     const pulled=(await api("pull")).data;
     if(!pulled || typeof pulled!=="object") throw new Error("Server returned no data — your Apps Script backend is likely out of date. Check Settings → About shows Backend 23 and redeploy a New version of the same /exec.");
     DB.bv=pulled.bv||DB.bv;
-    DB.actors=mergeList(DB.actors,pulled.actors);
+    DB.actors=mergeList(DB.actors,pulled.actors,reconcileActor);   // union photoTags so a stale device can't subtract tags
     DB.ratings=mergeList(DB.ratings,pulled.ratings);
     DB.events=mergeList(DB.events,pulled.events);
     DB.rewards=mergeList(DB.rewards,pulled.rewards);
@@ -6492,28 +6516,40 @@ function storageBreakdown(){
 // (mergeList is whole-record last-writer-wins). This tool takes a historical Actors-sheet paste and
 // UNION-merges the tags back — it only ever ADDS missing tags, never removes — then bumps updatedAt so
 // the restore wins the next sync instead of being re-clobbered.
-// Parse ONE clipboard line into TSV fields. Quotes are only special at a field's start (RFC-4180 style,
-// how Google Sheets escapes cells that contain quotes: wrap in "…", inner " doubled to "").
-function ptParseTsvLine(line){ const out=[]; let cur="", inQ=false, atStart=true;
-  for(let i=0;i<line.length;i++){ const c=line[i];
-    if(inQ){ if(c==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else inQ=false; } else cur+=c; }
-    else if(c==='\t'){ out.push(cur); cur=""; atStart=true; }
+// Parse a delimited grid (TSV clipboard OR downloaded CSV) into rows of fields. Full RFC-4180 quoting:
+// a field starting with " is quoted, may contain the delimiter and embedded newlines, and doubles inner
+// quotes (""). Google Sheets quotes any cell holding a comma/quote/newline — i.e. every PhotoTagsJSON cell
+// in a CSV export — so a naive split would shred the JSON; this state machine keeps it intact.
+function ptParseDelimited(text, delim){
+  const rows=[]; let row=[], cur="", inQ=false, atStart=true;
+  const s=String(text||"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  for(let i=0;i<s.length;i++){ const c=s[i];
+    if(inQ){ if(c==='"'){ if(s[i+1]==='"'){ cur+='"'; i++; } else inQ=false; } else cur+=c; }
     else if(c==='"'&&atStart){ inQ=true; atStart=false; }
+    else if(c===delim){ row.push(cur); cur=""; atStart=true; }
+    else if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=""; atStart=true; }
     else { cur+=c; atStart=false; } }
-  out.push(cur); return out; }
-// Pull {id, photoTags} rows out of a pasted Actors sheet, locating columns by header name.
-function ptParseRestore(text){
-  const rows=String(text||"").replace(/\r/g,"").split("\n").filter(l=>l.length);
-  if(!rows.length) return {error:"Nothing pasted."};
-  const head=ptParseTsvLine(rows[0]).map(h=>h.trim().toLowerCase());
+  row.push(cur); rows.push(row);
+  if(rows.length){ const last=rows[rows.length-1]; if(last.length===1 && last[0]==="") rows.pop(); }   // drop the empty row a trailing newline leaves
+  return rows; }
+// Locate ActorID + PhotoTagsJSON by header name and pull {id, photoTags} out of the parsed grid.
+function ptRowsToRecs(rows){
+  if(!rows.length) return {error:"Nothing to read."};
+  const head=(rows[0]||[]).map(h=>String(h).trim().toLowerCase());
   const idIdx=head.indexOf("actorid"), ptIdx=head.indexOf("phototagsjson");
-  if(idIdx<0||ptIdx<0) return {error:"Couldn't find the ActorID and PhotoTagsJSON columns in the header row. Paste the whole Actors sheet, header row included."};
+  if(idIdx<0||ptIdx<0) return {error:"Couldn't find the ActorID and PhotoTagsJSON columns in the header row. Use the whole Actors sheet, header row included."};
   const recs=[]; let bad=0;
-  for(let i=1;i<rows.length;i++){ const f=ptParseTsvLine(rows[i]); const id=(f[idIdx]||"").trim(), raw=(f[ptIdx]||"").trim();
+  for(let i=1;i<rows.length;i++){ const f=rows[i]||[]; const id=String(f[idIdx]==null?"":f[idIdx]).trim(), raw=String(f[ptIdx]==null?"":f[ptIdx]).trim();
     if(!id||!raw||raw==="{}") continue;
     let pt=null; try{ pt=JSON.parse(raw); }catch(e){ bad++; continue; }
     if(pt&&typeof pt==="object") recs.push({id,pt}); }
   return {recs,bad}; }
+// Auto-detect delimiter (a tab in the header line → pasted TSV, otherwise CSV) and read the grid.
+function ptParseRestore(text){
+  const s=String(text||"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  if(!s.trim()) return {error:"Nothing to read."};
+  const nl=s.indexOf("\n"), firstLine=nl>=0?s.slice(0,nl):s;
+  return ptRowsToRecs(ptParseDelimited(s, firstLine.indexOf("\t")>=0?"\t":",")); }
 // Compute what would change: for each pasted person, union restored tags into current tags on photos that
 // still exist. Records only the ADDITIONS (never a removal). Orphan = tag for a photo the person no longer has.
 function ptBuildRestorePlan(recs){
@@ -6527,8 +6563,18 @@ function ptBuildRestorePlan(recs){
     if(Object.keys(add).length) changes.push({id,name:a.name||id,add}); });
   return {changes,missing,addedTags,orphan}; }
 let _ptRestorePlan=null;
-function ptRestorePreview(){
-  const parsed=ptParseRestore(($("ptRestoreText")||{}).value);
+function ptRestorePreview(){ ptRestorePreviewFrom(($("ptRestoreText")||{}).value); }
+// Read a downloaded CSV/TSV file (no need to paste megabytes into the textarea) and preview it directly.
+function ptRestoreLoadFile(input){
+  const f=input.files&&input.files[0]; input.value="";               // reset so re-picking the same file re-fires
+  if(!f) return;
+  $("ptRestoreMsg").textContent="Reading "+f.name+"…";
+  const r=new FileReader();
+  r.onload=()=>{ $("ptRestoreMsg").textContent=""; ptRestorePreviewFrom(String(r.result||"")); };
+  r.onerror=()=>{ _ptRestorePlan=null; $("ptRestoreApplyBtn").style.display="none"; $("ptRestoreMsg").textContent="Couldn't read that file."; };
+  r.readAsText(f); }
+function ptRestorePreviewFrom(text){
+  const parsed=ptParseRestore(text);
   $("ptRestoreMsg").textContent="";
   if(parsed.error){ _ptRestorePlan=null; $("ptRestoreApplyBtn").style.display="none"; $("ptRestoreOut").innerHTML=`<span style="color:var(--bad)">${esc(parsed.error)}</span>`; return; }
   const plan=ptBuildRestorePlan(parsed.recs); _ptRestorePlan=plan;
@@ -6915,7 +6961,7 @@ function importData(){
   if(obj.schemaVersion!==SCHEMA_VERSION) return setImportMsg(`Schema mismatch (file v${obj.schemaVersion}, app v${SCHEMA_VERSION}). Aborted.`,"err");
   suppressSync=true; const t=now();
   if(obj.settings){ DB.settings=obj.settings; DB.settingsTs=t; }
-  if(obj.actors){ DB.actors=mergeList(DB.actors,obj.actors); }
+  if(obj.actors){ DB.actors=mergeList(DB.actors,obj.actors,reconcileActor); }
   if(obj.ratings){ DB.ratings=mergeList(DB.ratings,obj.ratings); }
   if(obj.events){ DB.events=mergeList(DB.events,obj.events); }
   if(obj.rewards){ DB.rewards=mergeList(DB.rewards,obj.rewards); }
