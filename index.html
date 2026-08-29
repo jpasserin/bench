@@ -1561,7 +1561,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "404";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "405";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1978,6 +1978,7 @@ async function load(){
   if(!DB.snapshots || typeof DB.snapshots!=="object") DB.snapshots={};   // daily Insights history (keyed by ISO date)
   let _fix=runMigrations(); if(runInvariants()) _fix=true; if(_fix) save();   // one-time shape upgrades + idempotent healers
   seenTs(maxTs());   // seed the logical clock from everything we've already saved, so new edits sort after it
+  _seedSyncBase();   // baseline for syncMeta diffing = the loaded (last-synced) state, so this session's edits are what get stamped
   try{ const s=localStorage.getItem(LS_SYNC); if(s) SYNC=Object.assign(SYNC,JSON.parse(s)); }catch(e){}
 }
 let _saveT=null;
@@ -2420,20 +2421,97 @@ function mergeAdditive(cur,inc,spec,gate){
       if(added){ out[fd.f]=merged; counts[fd.f]=added; } } });
   return {out,counts,orphan};
 }
-// Reconcile hook: take the newer record wholesale, but UNION every additive field from BOTH copies so a
-// stale device (older content, newer updatedAt) can never subtract. Re-stamp updatedAt only when the union
-// actually adds something (idempotent: once a device holds the superset, out is empty → no re-bump).
+// ---- per-record sync metadata (syncMeta = {del, fts}) --------------------------------------------
+// `del`: deletion tombstones — key `"<field><canon(item)>" → ts` marks an additive list/photolist
+//        item the user removed, so the union merge below won't resurrect it from a stale device.
+// `fts`: per-field timestamps — key `<scalarField> → ts` records when a scalar (name/country/year/…) was
+//        last set here, so a stale device with a higher whole-record updatedAt can't revert that one field.
+// Both degrade gracefully: a record with no syncMeta (legacy, or an older build) merges EXACTLY as before —
+// tombstones absent ⇒ union resurrects (old behaviour); fts absent ⇒ 0 ⇒ tie ⇒ whole-record LWW (old behaviour).
+const META_SEP=String.fromCharCode(1);   // U+0001 separator: cannot occur in a field name or URL
+const META_INTERNAL=new Set(["id","updatedAt","createdAt","syncMeta","deleted","actorId"]);   // never treated as a synced scalar
+function _canonHas(arr,key){ return (arr||[]).some(x=>_canon(x)===key); }
+// max-merge two {del,fts} maps (monotonic: keep the newest ts seen for each key on either side)
+function mergeMeta(a,b){ a=a||{}; b=b||{};
+  const del=Object.assign({},a.del||{}); const bd=b.del||{}; for(const k in bd){ if(!(k in del)||bd[k]>del[k]) del[k]=bd[k]; }
+  const fts=Object.assign({},a.fts||{}); const bf=b.fts||{}; for(const k in bf){ if(!(k in fts)||bf[k]>fts[k]) fts[k]=bf[k]; }
+  return {del,fts}; }
+function _metaEmpty(m){ return !m || (!Object.keys(m.del||{}).length && !Object.keys(m.fts||{}).length); }
+function _metaNorm(m){ return _metaEmpty(m)?null:{del:m.del||{},fts:m.fts||{}}; }
+// Reconcile hook: start from the newer record, then (1) for each scalar, take whichever side stamped it more
+// recently (tie → winner); (2) union every additive list/photolist, but DROP any unioned item a tombstone says
+// was deleted more recently than it was (re)added; (3) union tagmap/map fields; (4) carry the merged syncMeta.
+// Re-stamp updatedAt only when a VALUE actually changed (idempotent — converges, never ping-pongs).
 function reconcileWith(winner,loser,spec){
-  const {out}=mergeAdditive(winner,loser,spec,false); const keys=Object.keys(out);
-  if(!keys.length) return winner;
-  const t=now(), rec=Object.assign({},winner,out); rec.updatedAt=t; DB.rev=Math.max(DB.rev||0,t);
-  return rec; }
+  const wMeta=winner.syncMeta||{}, lMeta=loser.syncMeta||{}, meta=mergeMeta(wMeta,lMeta);
+  const base=Object.assign({},winner); let changed=false;
+  const additive=new Set(spec.fields.map(f=>f.f));
+  // (1) scalars — per-field last-writer-wins by fts
+  const scalarKeys=new Set();
+  [winner,loser].forEach(r=>{ for(const k in r){ if(META_INTERNAL.has(k)||additive.has(k)) continue;
+    const v=r[k]; if(v===null||typeof v==="object") continue; scalarKeys.add(k); } });
+  scalarKeys.forEach(k=>{ const wf=(wMeta.fts&&wMeta.fts[k])||0, lf=(lMeta.fts&&lMeta.fts[k])||0;
+    if(lf>wf && loser[k]!==winner[k]){ base[k]=loser[k]; changed=true; } });
+  // (2)/(3) additive fields
+  spec.fields.forEach(fd=>{ const cv=winner[fd.f], iv=loser[fd.f];
+    if(fd.kind==="list"||fd.kind==="photolist"){
+      const merged=unionArr(cv,iv).merged;
+      const kept=merged.filter(it=>{ const key=fd.f+META_SEP+_canon(it), delTs=(meta.del&&meta.del[key])||0;
+        if(!delTs) return true;   // no tombstone → keep
+        const liveW=_canonHas(cv,_canon(it)) && !(wMeta.del&&wMeta.del[key]);   // present & not tombstoned on winner
+        const liveL=_canonHas(iv,_canon(it)) && !(lMeta.del&&lMeta.del[key]);
+        const addTs=Math.max(liveW?(winner.updatedAt||0):0, liveL?(loser.updatedAt||0):0);
+        return addTs>delTs; });   // keep only if a live side is newer than the deletion (bias: resurrect over lose)
+      const wKeys=new Set((cv||[]).map(_canon));
+      if(kept.length!==wKeys.size || kept.some(it=>!wKeys.has(_canon(it)))){ base[fd.f]=kept; changed=true; }
+    } else if(fd.kind==="tagmap"){ const bmap=cv||{}, m2=Object.assign({},bmap); let add=false;
+      for(const url in (iv||{})){ const u=unionArr(bmap[url]||[],iv[url]||[]); if(u.added){ m2[url]=u.merged; add=true; } }
+      if(add){ base[fd.f]=m2; changed=true; }
+    } else if(fd.kind==="map"){ const bmap=cv||{}, m2=Object.assign({},bmap); let add=false;
+      for(const k in (iv||{})){ if(!(k in bmap)){ m2[k]=iv[k]; add=true; } }
+      if(add){ base[fd.f]=m2; changed=true; } } });
+  const mNorm=_metaNorm(meta), metaDiffers=JSON.stringify(mNorm)!==JSON.stringify(_metaNorm(winner.syncMeta));
+  if(!changed && !metaDiffers) return winner;
+  if(mNorm) base.syncMeta=mNorm; else delete base.syncMeta;
+  if(changed){ const t=now(); base.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); }
+  return base; }
 function reconcileActor(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.actors); }
 function reconcileEvent(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.events); }
 function reconcileStudio(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.studios); }
 function reconcileSeries(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.series); }
 function reconcileTeam(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.teams); }
 function reconcileCollection(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.collections); }
+// ---- syncMeta derivation: diff each record against the last-synced baseline to record what changed locally ----
+// A record's deletion tombstones / field timestamps are DERIVED (not written at every edit site): we snapshot the
+// synced state and, just before a sync, diff the current record against it. A scalar whose value changed → stamp
+// fts[field]; an additive list item that vanished → tombstone del[field|item]; one that reappeared → clear it.
+const META_COLLS=["actors","events","studios","series","teams","collections"];
+function _snapRec(r,spec){ const sc={}, li={}, additive=new Set(spec.fields.map(f=>f.f));
+  for(const k in r){ if(META_INTERNAL.has(k)||additive.has(k)) continue; const v=r[k]; if(v===null||typeof v==="object") continue; sc[k]=v; }
+  spec.fields.forEach(fd=>{ if(fd.kind==="list"||fd.kind==="photolist") li[fd.f]=(r[fd.f]||[]).map(_canon); });
+  return {sc,li}; }
+function snapSyncBase(){ const s={}; META_COLLS.forEach(c=>{ const spec=ADDITIVE[c], m={};
+  (DB[c]||[]).forEach(r=>{ if(r&&r.id!=null) m[r.id]=_snapRec(r,spec); }); s[c]=m; }); return s; }
+let _syncBase=null;
+function _seedSyncBase(){ _syncBase=snapSyncBase(); }   // capture the current (last-synced) state as the diff baseline
+// Bake local edits since the baseline into each record's syncMeta. Returns nothing; mutates DB records in place.
+function stampSyncMeta(){
+  if(!_syncBase) { _seedSyncBase(); return; }
+  const t=now();
+  META_COLLS.forEach(c=>{ const spec=ADDITIVE[c], base=_syncBase[c]||{};
+    (DB[c]||[]).forEach(r=>{ const b=base[r.id]; if(!b) return;   // brand-new record: no prior state to diff against
+      const cur=_snapRec(r,spec);
+      const del=Object.assign({}, (r.syncMeta&&r.syncMeta.del)||{}), fts=Object.assign({}, (r.syncMeta&&r.syncMeta.fts)||{});
+      let dirty=false;
+      for(const k in cur.sc){ if(cur.sc[k]!==b.sc[k]){ fts[k]=t; dirty=true; } }        // scalar changed
+      for(const k in b.sc){ if(!(k in cur.sc)){ fts[k]=t; dirty=true; } }               // scalar cleared
+      spec.fields.forEach(fd=>{ if(fd.kind!=="list"&&fd.kind!=="photolist") return;
+        const before=b.li[fd.f]||[], after=new Set(cur.li[fd.f]||[]);
+        before.forEach(k=>{ if(!after.has(k)){ del[fd.f+META_SEP+k]=t; dirty=true; } });   // item removed → tombstone
+        after.forEach(k=>{ const dk=fd.f+META_SEP+k; if(del[dk]!=null){ delete del[dk]; dirty=true; } }); });  // re-added → clear
+      if(dirty){ const m=_metaNorm({del,fts}); if(m) r.syncMeta=m; else delete r.syncMeta;
+        r.updatedAt=Math.max(r.updatedAt||0,t); DB.rev=Math.max(DB.rev||0,t); } }); });
+}
 function maxTs(){
   let m=Math.max(DB.settingsTs||0, DB.rateQueueTs||0, DB.snapshotsTs||0);
   ["actors","ratings","events","rewards","studios","series","teams","collections"].forEach(k=>(DB[k]||[]).forEach(r=>{ if((r.updatedAt||0)>m) m=r.updatedAt; }));
@@ -2461,6 +2539,7 @@ async function syncNow(force){
   if(PRIVATE){ setSyncState("🔒 Private mode — sync paused",""); return; }
   if(!SYNC.on||syncing) return; syncing=true; setSyncState("Syncing…","sync");
   try{
+    stampSyncMeta();   // bake local edits since the last sync into each record's syncMeta (tombstones + field ts) BEFORE the skip-gate/merge/push
     if(!force){
       // cheap probe first: if the server isn't ahead of what we've seen AND we have no local changes
       // since our last push, there's nothing to do — skip the (expensive) pull + full-tab-rewrite push.
@@ -2512,6 +2591,7 @@ async function syncNow(force){
       await api("push",payload);
     }
     lastSeenRev=dataRev(); lastPushedSig=syncSig();   // we're now in sync with the server (rev on the same basis as statRev)
+    _seedSyncBase();   // the merged+pushed state is the new baseline: future edits diff against THIS
     setSyncState("Up to date ✓","ok");
     const changed = syncSig()!==sigBefore;   // only the pull/merge can change local data
     // don't disturb the open view when nothing new arrived (push-only sync), and NEVER yank the board out from
