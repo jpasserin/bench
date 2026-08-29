@@ -1227,9 +1227,9 @@ button.boolcap{cursor:pointer;font-family:inherit}
   </div>
 
   <div class="card" data-cat="photos">
-    <h3>🩹 Restore photo tags</h3>
-    <div class="small muted" style="margin-bottom:8px">Recover photo tags lost to a stale-device sync, from a Google Sheet version from <b>before</b> the loss (open <b>File → Version history</b>, then <b>⋮ → Make a copy</b> of that version). <b>Best for lots of data:</b> in that copy, <b>File → Download → Comma-separated values (.csv)</b> with the <b>Actors</b> tab active, then <b>Load file…</b> below. Or select the whole Actors tab (header row included), copy, paste it, and <b>Preview paste</b>. This only <b>adds back</b> missing tags — never removes anything — then stamps the rows so the fix wins the next sync. <b>Preview</b> first, then <b>Apply</b>.</div>
-    <textarea id="ptRestoreText" placeholder="…or paste the Actors sheet here — include the header row (ActorID … PhotoTagsJSON …)" style="min-height:90px"></textarea>
+    <h3>🩹 Restore lost data</h3>
+    <div class="small muted" style="margin-bottom:8px">Recover anything a stale-device sync subtracted — tags, links, photos, favorites, meta-tags, attributes, and (from the Rewards tab) missing nominations/awards — from a Google Sheet version from <b>before</b> the loss (open <b>File → Version history</b>, then <b>⋮ → Make a copy</b> of that version). In that copy, pick the <b>Actors</b>, <b>Activities</b> or <b>Rewards</b> tab, then <b>File → Download → Comma-separated values (.csv)</b> and <b>Load file…</b> below (best for lots of data). Or copy the whole tab, paste it, and <b>Preview paste</b>. This only <b>adds back</b> what's missing — never removes anything — then stamps the rows so the fix wins the next sync. <b>Preview</b> first, then <b>Apply</b>. Run it once per tab.</div>
+    <textarea id="ptRestoreText" placeholder="…or paste the whole Actors or Activities sheet here — include the header row" style="min-height:90px"></textarea>
     <input type="file" id="ptRestoreFile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" style="display:none" onchange="ptRestoreLoadFile(this)">
     <div class="row" style="margin-top:8px;gap:8px">
       <button class="sm" onclick="document.getElementById('ptRestoreFile').click()">📁 Load file…</button>
@@ -1561,7 +1561,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "402";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "403";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2349,17 +2349,67 @@ function unionPhotoTags(a,b){ const out={}; [a||{},b||{}].forEach(pt=>{ for(cons
 function samePhotoTags(a,b){ a=a||{}; b=b||{}; const ka=Object.keys(a), kb=Object.keys(b); if(ka.length!==kb.length) return false;
   for(const u of ka){ if(!(u in b)) return false; const sa=new Set(a[u]||[]), sb=new Set(b[u]||[]); if(sa.size!==sb.size) return false;
     for(const x of sa) if(!sb.has(x)) return false; } return true; }
-// Actor reconcile: take the newer record wholesale, but UNION photoTags from both copies so a stale device
-// (older content, newer updatedAt) can never subtract tags. When the union actually adds something neither
-// side alone had, bump updatedAt so the merged superset out-ranks every device and converges (idempotent:
-// once a device holds the superset, union===winner → no re-bump, no ping-pong).
-function reconcileActor(winner,loser){
-  const merged=unionPhotoTags(winner.photoTags,loser.photoTags);
-  if(samePhotoTags(winner.photoTags,merged)) return winner;   // winner already ⊇ loser's tags → nothing to salvage
-  const t=now(), out=Object.assign({},winner,{photoTags:merged});   // loser had tags the winner lacked → new combined superset
-  out.updatedAt=t; DB.rev=Math.max(DB.rev||0,t);                    // re-stamp so the merged superset out-ranks every device (converges; idempotent once everyone holds it)
-  return out;
+// ---- Additive-field union (shared by the sync reconcile AND the restore tool) --------------------
+// The whole-record LWW clobber can silently SHRINK any list/JSON field. These specs list every additive
+// field per collection, its client record key (`f`), its union semantics (`kind`), the sheet column it
+// exports to (`col`, lowercased — used only by the restore importer) and that cell's serialization (`fmt`).
+//   list      → de-duped array union            photolist → array union gated to photos that exist
+//   tagmap    → {url:[key,...]} per-url union    map       → object, fill only keys the current copy lacks
+const ADDITIVE = {
+  actors: { id:"actorid", noun:"people", nameKey:"name", photoField:"photoURLs", fields:[
+    {f:"photoURLs",   col:"photourls",       kind:"list",      fmt:"lines"},
+    {f:"tags",        col:"tagsjson",        kind:"list",      fmt:"json"},
+    {f:"links",       col:"linksjson",       kind:"list",      fmt:"json"},
+    {f:"metaTags",    col:"metatagsjson",    kind:"list",      fmt:"json"},
+    {f:"attrs",       col:"attrsjson",       kind:"map",       fmt:"json"},
+    {f:"profilePics", col:"profilepicsjson", kind:"photolist", fmt:"json"},
+    {f:"photoTags",   col:"phototagsjson",   kind:"tagmap",    fmt:"json"} ] },
+  events: { id:"eventid", noun:"activities", nameKey:"eventName", photoField:"photoURLs", fields:[
+    {f:"actorIds",    col:"actoridsjson",    kind:"list",      fmt:"json"},
+    {f:"tags",        col:"tags",            kind:"list",      fmt:"tagscol"},
+    {f:"photoURLs",   col:"photourls",       kind:"list",      fmt:"lines"},
+    {f:"links",       col:"linksjson",       kind:"list",      fmt:"json"},
+    {f:"metaTags",    col:"metatagsjson",    kind:"list",      fmt:"json"},
+    {f:"seenWeek",    col:"seenweekjson",    kind:"list",      fmt:"json"},
+    {f:"attrs",       col:"attrsjson",       kind:"map",       fmt:"json"},
+    {f:"profilePics", col:"profilepicsjson", kind:"photolist", fmt:"json"} ] }
+};
+// Canonical key for de-dup (strings compare as-is; link/attr objects by their JSON) and an additive array union.
+function _canon(x){ return typeof x==="string"?x:JSON.stringify(x); }
+function unionArr(cur,extra){ const seen=new Set((cur||[]).map(_canon)); const merged=(cur||[]).slice(); let added=0;
+  (extra||[]).forEach(it=>{ if(it==null) return; const k=_canon(it); if(!seen.has(k)){ seen.add(k); merged.push(it); added++; } });
+  return {merged,added}; }
+// Union `inc`'s additive fields into `cur` per `spec`. Returns only the fields that actually GREW (`out`),
+// how many items each gained (`counts`) and, when `gate` is on, how many entries referenced a now-missing
+// photo (`orphan`). Never removes anything. `gate` is used by the restore tool (drop tags/favorites whose
+// photo no longer exists even after restoring photos); the sync reconcile passes gate=false (never drop).
+function mergeAdditive(cur,inc,spec,gate){
+  const out={}, counts={}; let orphan=0;
+  let photos=null;
+  if(gate&&spec.photoField){ photos=new Set(unionArr(cur[spec.photoField],inc[spec.photoField]).merged); }
+  spec.fields.forEach(fd=>{ const cv=cur[fd.f], iv=inc[fd.f]; if(iv==null) return;
+    if(fd.kind==="list"){ const u=unionArr(cv,iv); if(u.added){ out[fd.f]=u.merged; counts[fd.f]=u.added; } }
+    else if(fd.kind==="photolist"){ const filt=(iv||[]).filter(x=>{ if(photos&&!photos.has(x)){ orphan++; return false; } return true; });
+      const u=unionArr(cv,filt); if(u.added){ out[fd.f]=u.merged; counts[fd.f]=u.added; } }
+    else if(fd.kind==="tagmap"){ const base=cv||{}, merged=Object.assign({},base); let added=0;
+      for(const url in (iv||{})){ if(photos&&!photos.has(url)){ orphan+=(iv[url]||[]).length; continue; }
+        const u=unionArr(base[url]||[],iv[url]||[]); if(u.added){ merged[url]=u.merged; added+=u.added; } }
+      if(added){ out[fd.f]=merged; counts[fd.f]=added; } }
+    else if(fd.kind==="map"){ const base=cv||{}, merged=Object.assign({},base); let added=0;
+      for(const k in (iv||{})){ if(!(k in base)){ merged[k]=iv[k]; added++; } }
+      if(added){ out[fd.f]=merged; counts[fd.f]=added; } } });
+  return {out,counts,orphan};
 }
+// Reconcile hook: take the newer record wholesale, but UNION every additive field from BOTH copies so a
+// stale device (older content, newer updatedAt) can never subtract. Re-stamp updatedAt only when the union
+// actually adds something (idempotent: once a device holds the superset, out is empty → no re-bump).
+function reconcileWith(winner,loser,spec){
+  const {out}=mergeAdditive(winner,loser,spec,false); const keys=Object.keys(out);
+  if(!keys.length) return winner;
+  const t=now(), rec=Object.assign({},winner,out); rec.updatedAt=t; DB.rev=Math.max(DB.rev||0,t);
+  return rec; }
+function reconcileActor(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.actors); }
+function reconcileEvent(winner,loser){ return reconcileWith(winner,loser,ADDITIVE.events); }
 function maxTs(){
   let m=Math.max(DB.settingsTs||0, DB.rateQueueTs||0, DB.snapshotsTs||0);
   ["actors","ratings","events","rewards","studios","series","teams","collections"].forEach(k=>(DB[k]||[]).forEach(r=>{ if((r.updatedAt||0)>m) m=r.updatedAt; }));
@@ -2398,9 +2448,9 @@ async function syncNow(force){
     const pulled=(await api("pull")).data;
     if(!pulled || typeof pulled!=="object") throw new Error("Server returned no data — your Apps Script backend is likely out of date. Check Settings → About shows Backend 23 and redeploy a New version of the same /exec.");
     DB.bv=pulled.bv||DB.bv;
-    DB.actors=mergeList(DB.actors,pulled.actors,reconcileActor);   // union photoTags so a stale device can't subtract tags
+    DB.actors=mergeList(DB.actors,pulled.actors,reconcileActor);   // union additive fields so a stale device can't subtract tags/links/photos/…
     DB.ratings=mergeList(DB.ratings,pulled.ratings);
-    DB.events=mergeList(DB.events,pulled.events);
+    DB.events=mergeList(DB.events,pulled.events,reconcileEvent);
     DB.rewards=mergeList(DB.rewards,pulled.rewards);
     DB.history=mergeList(DB.history||[],pulled.history);
     DB.studios=mergeList(DB.studios||[],pulled.studios);
@@ -6511,11 +6561,12 @@ function storageBreakdown(){
   DB.events.forEach(e=>{ (e.photoURLs||[]).forEach(scan); (e.links||[]).forEach(l=>scan(l&&l.url)); });
   return { lines, dataUris };
 }
-// ---- Restore photo tags (recovery from a whole-record LWW clobber) --------------------------------
-// A stale device can out-rank a good record on updatedAt and its shorter photoTags replaces the full set
-// (mergeList is whole-record last-writer-wins). This tool takes a historical Actors-sheet paste and
-// UNION-merges the tags back — it only ever ADDS missing tags, never removes — then bumps updatedAt so
-// the restore wins the next sync instead of being re-clobbered.
+// ---- Restore lost data (recovery from a whole-record LWW clobber) ---------------------------------
+// A stale device can out-rank a good record on updatedAt and its SHORTER lists replace the full ones
+// (mergeList is whole-record last-writer-wins), silently subtracting tags, links, photos, favorites, …
+// This tool takes a historical Actors OR Activities sheet export (CSV file or paste) and UNION-merges every
+// additive field back — it only ever ADDS what's missing, never removes — then bumps updatedAt so the
+// restore wins the next sync instead of being re-clobbered. Field specs live in ADDITIVE (near mergeList).
 // Parse a delimited grid (TSV clipboard OR downloaded CSV) into rows of fields. Full RFC-4180 quoting:
 // a field starting with " is quoted, may contain the delimiter and embedded newlines, and doubles inner
 // quotes (""). Google Sheets quotes any cell holding a comma/quote/newline — i.e. every PhotoTagsJSON cell
@@ -6532,36 +6583,79 @@ function ptParseDelimited(text, delim){
   row.push(cur); rows.push(row);
   if(rows.length){ const last=rows[rows.length-1]; if(last.length===1 && last[0]==="") rows.pop(); }   // drop the empty row a trailing newline leaves
   return rows; }
-// Locate ActorID + PhotoTagsJSON by header name and pull {id, photoTags} out of the parsed grid.
+// Decide which collection a sheet is. Events + Rewards tabs BOTH carry an ActorID column, so match their own
+// id columns first. Rewards rows (nominations/awards) are whole records, not additive lists → separate path.
+function ptDetectType(head){
+  if(head.indexOf("eventid")>=0) return "events";
+  if(head.indexOf("rewardid")>=0) return "rewards";
+  if(head.indexOf("actorid")>=0) return "actors";
+  return null; }
+function ptCellVal(raw,fmt){
+  raw=String(raw==null?"":raw).trim(); if(!raw) return null;
+  if(fmt==="lines") return raw.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(fmt==="json"){ if(raw==="{}"||raw==="[]") return null; try{ return JSON.parse(raw); }catch(e){ return undefined; } }   // undefined = flag unparseable
+  if(fmt==="tagscol"){ if(raw==="[]") return null; try{ return JSON.parse(raw); }catch(e){ return raw.split("\n").map(s=>s.trim()).filter(Boolean); } }
+  return null; }
+function ptBool(v){ return /^(true|1|yes)$/i.test(String(v==null?"":v).trim()); }
+function ptNum(v){ const n=Number(String(v==null?"":v).trim()); return isFinite(n)?n:0; }
+// Rewards restore is row-level, not field-level: read the whole reward record from each row.
+function ptRewardsRecs(rows,head){
+  const gi=n=>head.indexOf(n), idI=gi("rewardid");
+  if(idI<0) return {error:"This looks like the Rewards sheet but there's no RewardID column in the header row."};
+  const wI=gi("weekstartdate"), cI=gi("category"), aI=gi("actorid"), iwI=gi("iswinner"), dI=gi("deleted"), crI=gi("createdat"), uI=gi("updatedat");
+  const g=(f,i)=>i<0?"":String(f[i]==null?"":f[i]).trim(); const recs=[];
+  for(let i=1;i<rows.length;i++){ const f=rows[i]||[]; const id=g(f,idI); if(!id) continue;
+    recs.push({ id, weekStart:g(f,wI), category:g(f,cI), actorId:g(f,aI),
+      isWinner:ptBool(f[iwI]), deleted:ptBool(f[dI]), createdAt:ptNum(f[crI]), updatedAt:ptNum(f[uI]) }); }
+  return {type:"rewards",recs,bad:0}; }
+// Detect the collection, locate each additive column by header, and pull {id, vals:{field:value}} per row.
 function ptRowsToRecs(rows){
   if(!rows.length) return {error:"Nothing to read."};
   const head=(rows[0]||[]).map(h=>String(h).trim().toLowerCase());
-  const idIdx=head.indexOf("actorid"), ptIdx=head.indexOf("phototagsjson");
-  if(idIdx<0||ptIdx<0) return {error:"Couldn't find the ActorID and PhotoTagsJSON columns in the header row. Use the whole Actors sheet, header row included."};
+  const type=ptDetectType(head);
+  if(!type) return {error:"Couldn't recognise this sheet. Export the whole Actors, Activities or Rewards tab, header row included."};
+  if(type==="rewards") return ptRewardsRecs(rows,head);
+  const spec=ADDITIVE[type], idIdx=head.indexOf(spec.id);
+  const cols=spec.fields.map(fd=>({fd,idx:head.indexOf(fd.col)})).filter(c=>c.idx>=0);
+  if(idIdx<0||!cols.length) return {error:`This looks like the ${spec.noun} sheet but the expected columns are missing from the header row.`};
   const recs=[]; let bad=0;
-  for(let i=1;i<rows.length;i++){ const f=rows[i]||[]; const id=String(f[idIdx]==null?"":f[idIdx]).trim(), raw=String(f[ptIdx]==null?"":f[ptIdx]).trim();
-    if(!id||!raw||raw==="{}") continue;
-    let pt=null; try{ pt=JSON.parse(raw); }catch(e){ bad++; continue; }
-    if(pt&&typeof pt==="object") recs.push({id,pt}); }
-  return {recs,bad}; }
+  for(let i=1;i<rows.length;i++){ const f=rows[i]||[]; const id=String(f[idIdx]==null?"":f[idIdx]).trim(); if(!id) continue;
+    const vals={}; let any=false, rowBad=false;
+    cols.forEach(({fd,idx})=>{ const v=ptCellVal(f[idx],fd.fmt); if(v===undefined){ rowBad=true; return; } if(v!=null){ vals[fd.f]=v; any=true; } });
+    if(rowBad) bad++;
+    if(any) recs.push({id,vals}); }
+  return {type,recs,bad}; }
 // Auto-detect delimiter (a tab in the header line → pasted TSV, otherwise CSV) and read the grid.
 function ptParseRestore(text){
   const s=String(text||"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
   if(!s.trim()) return {error:"Nothing to read."};
   const nl=s.indexOf("\n"), firstLine=nl>=0?s.slice(0,nl):s;
   return ptRowsToRecs(ptParseDelimited(s, firstLine.indexOf("\t")>=0?"\t":",")); }
-// Compute what would change: for each pasted person, union restored tags into current tags on photos that
-// still exist. Records only the ADDITIONS (never a removal). Orphan = tag for a photo the person no longer has.
-function ptBuildRestorePlan(recs){
-  const norm=arr=>Array.from(new Set((arr||[]).filter(Boolean)));
-  const changes=[]; let missing=0, addedTags=0, orphan=0;
-  (recs||[]).forEach(({id,pt})=>{ const a=actorById(id); if(!a){ missing++; return; }
-    const have=new Set(a.photoURLs||[]), cur=a.photoTags||{}, add={};
-    for(const u in pt){ if(!have.has(u)){ orphan+=norm(pt[u]).length; continue; }
-      const nowT=norm(cur[u]), oldT=norm(pt[u]), merged=Array.from(new Set(nowT.concat(oldT)));
-      if(merged.length>nowT.length){ add[u]=merged; addedTags+=merged.length-nowT.length; } }
-    if(Object.keys(add).length) changes.push({id,name:a.name||id,add}); });
-  return {changes,missing,addedTags,orphan}; }
+// id→current-record lookup for the detected collection.
+function ptCurrentIndex(type){ const arr=type==="actors"?DB.actors:DB.events, m={}; (arr||[]).forEach(r=>m[r.id]=r); return id=>m[id]; }
+// Rewards plan: re-add any nomination/award ROW in the export that's entirely absent locally (never resurrect
+// one you deleted — that survives locally as a tombstone row, so `have` still contains its id — and never
+// re-add a row the export itself marks deleted). Reports how many are already present so you can confirm none were lost.
+function ptBuildRewardPlan(parsed){
+  const have=new Set((DB.rewards||[]).map(r=>r.id));
+  const changes=[]; let present=0, skippedDeleted=0;
+  (parsed.recs||[]).forEach(r=>{ if(r.deleted){ skippedDeleted++; return; } if(have.has(r.id)){ present++; return; } changes.push(r); });
+  const noms=changes.filter(r=>!r.category).length;
+  return { type:"rewards", changes, present, skippedDeleted, total:(parsed.recs||[]).length, noms, awards:changes.length-noms }; }
+// Compute what would change: for each exported record union its additive fields into the current copy (only
+// ADDITIONS, gated so tags/favorites for a genuinely-missing photo are skipped). Tallies per-field totals.
+function ptBuildRestorePlan(parsed){
+  if(parsed.type==="rewards") return ptBuildRewardPlan(parsed);
+  const spec=ADDITIVE[parsed.type], byId=ptCurrentIndex(parsed.type);
+  const changes=[]; const totals={}; let missing=0, orphan=0;
+  (parsed.recs||[]).forEach(({id,vals})=>{ const cur=byId(id); if(!cur){ missing++; return; }
+    const {out,counts,orphan:o}=mergeAdditive(cur,vals,spec,true); orphan+=o;
+    const keys=Object.keys(out); if(!keys.length) return;
+    keys.forEach(k=>{ totals[k]=(totals[k]||0)+counts[k]; });
+    changes.push({id,name:cur[spec.nameKey]||cur.name||id,out,counts}); });
+  return {type:parsed.type,changes,totals,missing,orphan}; }
+const PT_FIELD_LABEL={photoURLs:"photos",tags:"tags",links:"links",metaTags:"meta-tags",attrs:"attributes",profilePics:"favorites",photoTags:"photo-tags",actorIds:"linked people",seenWeek:"seen-weeks"};
+function ptCountsPhrase(counts){ return Object.keys(counts).map(k=>`+${counts[k]} ${PT_FIELD_LABEL[k]||k}`).join(", "); }
 let _ptRestorePlan=null;
 function ptRestorePreview(){ ptRestorePreviewFrom(($("ptRestoreText")||{}).value); }
 // Read a downloaded CSV/TSV file (no need to paste megabytes into the textarea) and preview it directly.
@@ -6577,24 +6671,42 @@ function ptRestorePreviewFrom(text){
   const parsed=ptParseRestore(text);
   $("ptRestoreMsg").textContent="";
   if(parsed.error){ _ptRestorePlan=null; $("ptRestoreApplyBtn").style.display="none"; $("ptRestoreOut").innerHTML=`<span style="color:var(--bad)">${esc(parsed.error)}</span>`; return; }
-  const plan=ptBuildRestorePlan(parsed.recs); _ptRestorePlan=plan;
-  const list=plan.changes.slice(0,20).map(c=>`${esc(c.name)} — +${Object.values(c.add).reduce((n,v)=>n+v.length,0)} on ${Object.keys(c.add).length} photo(s)`).join("<br>");
+  if(parsed.type==="rewards"){
+    const plan=ptBuildRestorePlan(parsed); _ptRestorePlan=plan;
+    $("ptRestoreApplyBtn").style.display=plan.changes.length?"":"none";
+    const list=plan.changes.slice(0,20).map(r=>`${esc(r.weekStart||"?")} — ${r.category?"award ("+esc(r.category)+")":"nomination"} · ${esc(r.actorId)}`).join("<br>");
+    $("ptRestoreOut").innerHTML=`Detected the <b>Rewards</b> sheet · <b>${plan.total}</b> reward row(s) in the export.<br>`+
+      (plan.changes.length
+        ? `Will re-add <b>${plan.changes.length}</b> missing (${plan.noms} nomination(s), ${plan.awards} award(s)); <b>${plan.present}</b> already present.`+
+          (plan.skippedDeleted?`<br><span class="muted">${plan.skippedDeleted} were deleted in the export (skipped).</span>`:"")+
+          `<div style="margin-top:8px">${list}${plan.changes.length>20?`<br><span class="muted">…and ${plan.changes.length-20} more</span>`:""}</div>`
+        : `<b>Nothing missing</b> — all <b>${plan.present}</b> rewards in the export are already here. Your nominations & awards are intact. ✓`); return; }
+  const spec=ADDITIVE[parsed.type], plan=ptBuildRestorePlan(parsed); _ptRestorePlan=plan;
+  const totalPhrase=ptCountsPhrase(plan.totals);
+  const list=plan.changes.slice(0,20).map(c=>`${esc(c.name)} — ${esc(ptCountsPhrase(c.counts))}`).join("<br>");
   $("ptRestoreApplyBtn").style.display=plan.changes.length?"":"none";
-  $("ptRestoreOut").innerHTML=`Parsed <b>${parsed.recs.length}</b> row(s)${parsed.bad?` · <span style="color:var(--bad)">${parsed.bad} unparseable</span>`:""}.<br>`+
+  $("ptRestoreOut").innerHTML=`Detected the <b>${spec.noun==="people"?"Actors":"Activities"}</b> sheet · parsed <b>${parsed.recs.length}</b> row(s)${parsed.bad?` · <span style="color:var(--bad)">${parsed.bad} unparseable</span>`:""}.<br>`+
     (plan.changes.length
-      ? `Will restore tags on <b>${plan.changes.length}</b> people (<b>+${plan.addedTags}</b> tags).`+
-        (plan.missing?`<br><span class="muted">${plan.missing} pasted people not found locally (skipped).</span>`:"")+
-        (plan.orphan?`<br><span class="muted">${plan.orphan} tags were for photos that no longer exist (skipped).</span>`:"")+
+      ? `Will restore on <b>${plan.changes.length}</b> ${spec.noun}: <b>${esc(totalPhrase)}</b>.`+
+        (plan.missing?`<br><span class="muted">${plan.missing} exported ${spec.noun} not found locally (skipped).</span>`:"")+
+        (plan.orphan?`<br><span class="muted">${plan.orphan} tag/favorite(s) referenced photos that no longer exist (skipped).</span>`:"")+
         `<div style="margin-top:8px">${list}${plan.changes.length>20?`<br><span class="muted">…and ${plan.changes.length-20} more</span>`:""}</div>`
-      : `<b>Nothing to restore</b> — your current tags already include everything in the paste.`); }
+      : `<b>Nothing to restore</b> — your current data already includes everything in this export.`); }
 async function ptRestoreApply(){
   const plan=_ptRestorePlan; if(!plan||!plan.changes.length) return;
-  const t=now(); let n=0;
-  plan.changes.forEach(c=>{ const a=actorById(c.id); if(!a) return; a.photoTags=a.photoTags||{};
-    for(const u in c.add) a.photoTags[u]=c.add[u];
-    a.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); n++; });
+  const t=now(); let n=0, summary="";
+  if(plan.type==="rewards"){
+    DB.rewards=DB.rewards||[];
+    plan.changes.forEach(r=>{ DB.rewards.push({ id:r.id, weekStart:r.weekStart, category:r.category, actorId:r.actorId,
+      isWinner:r.isWinner, deleted:false, createdAt:r.createdAt||t, updatedAt:t }); DB.rev=Math.max(DB.rev||0,t); n++; });
+    summary=`Re-added ${n} reward(s)`;
+  } else {
+    const spec=ADDITIVE[plan.type], byId=ptCurrentIndex(plan.type);
+    plan.changes.forEach(c=>{ const rec=byId(c.id); if(!rec) return; Object.assign(rec,c.out); rec.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); n++; });
+    summary=`Restored ${ptCountsPhrase(plan.totals)} across ${n} ${spec.noun}`;
+  }
   save(); $("ptRestoreMsg").textContent="Pushing…";
-  try{ await syncNow(true); $("ptRestoreMsg").textContent=`Restored ${plan.addedTags} tags on ${n} people ✓ — now update/refresh your other devices.`; }
+  try{ await syncNow(true); $("ptRestoreMsg").textContent=`${summary} ✓ — now update/refresh your other devices.`; }
   catch(e){ $("ptRestoreMsg").textContent="Saved locally; sync failed — "+e.message; }
   _ptRestorePlan=null; $("ptRestoreApplyBtn").style.display="none"; $("ptRestoreText").value=""; $("ptRestoreOut").innerHTML=""; rerenderActive(); }
 function saveSyncCfg(){ SYNC.url=$("syncUrl").value.trim(); SYNC.secret=$("syncSecret").value.trim(); SYNC.on=$("syncOn").checked; saveSync(); }
@@ -6963,7 +7075,7 @@ function importData(){
   if(obj.settings){ DB.settings=obj.settings; DB.settingsTs=t; }
   if(obj.actors){ DB.actors=mergeList(DB.actors,obj.actors,reconcileActor); }
   if(obj.ratings){ DB.ratings=mergeList(DB.ratings,obj.ratings); }
-  if(obj.events){ DB.events=mergeList(DB.events,obj.events); }
+  if(obj.events){ DB.events=mergeList(DB.events,obj.events,reconcileEvent); }
   if(obj.rewards){ DB.rewards=mergeList(DB.rewards,obj.rewards); }
   if(obj.history){ DB.history=mergeList(DB.history||[],obj.history); }
   DB.rev=maxTs(); /*property filter removed*/ save(); suppressSync=false;
