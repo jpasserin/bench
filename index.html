@@ -1195,7 +1195,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <div id="importBox" style="display:none;margin-top:10px"><span id="importMsg" class="small muted"></span></div>
   </div>
 
-  <div class="card" data-cat="general">
+  <div class="card" data-cat="attributes">
     <h3>Reward categories</h3>
     <div id="setCats"></div>
     <div class="row" style="margin-top:8px"><input id="newCat" placeholder="New category"><button class="sm" onclick="addCat()">Add</button></div>
@@ -1226,14 +1226,12 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <div class="small" id="lowqScanOut" style="margin-top:8px"></div>
   </div>
 
-  <div class="card" data-cat="photos">
+  <div class="card" data-cat="data">
     <h3>🩹 Restore lost data</h3>
-    <div class="small muted" style="margin-bottom:8px">Recover anything a stale-device sync subtracted — tags, links, photos, favorites, meta-tags, attributes, and (from the Rewards tab) missing nominations/awards — from a Google Sheet version from <b>before</b> the loss (open <b>File → Version history</b>, then <b>⋮ → Make a copy</b> of that version). In that copy, download the <b>Actors</b>, <b>Activities</b> and/or <b>Rewards</b> tab as <b>Comma-separated values (.csv)</b>, then <b>Load file(s)…</b> below — you can pick <b>all of them at once</b>. You'll get a summary of exactly what will be added back; nothing is changed until you press <b>Confirm</b>. This only <b>adds back</b> what's missing — never removes anything — then stamps the rows so the fix wins the next sync. (Or paste one tab and <b>Preview paste</b>.)</div>
-    <textarea id="ptRestoreText" placeholder="…or paste the whole Actors or Activities sheet here — include the header row" style="min-height:90px"></textarea>
+    <div class="small muted" style="margin-bottom:8px">Load a CSV file downloaded from an earlier Google Sheet version (<b>File → Version history → ⋮ → Make a copy</b>, then export the Actors, Activities and/or Rewards tab as CSV). You'll see exactly what will be added back before anything changes.</div>
     <input type="file" id="ptRestoreFile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" multiple style="display:none" onchange="ptRestoreLoadFile(this)">
     <div class="row" style="margin-top:8px;gap:8px">
       <button class="sm" onclick="document.getElementById('ptRestoreFile').click()">📁 Load file(s)…</button>
-      <button class="sm" onclick="ptRestorePreview()">Preview paste</button>
       <button class="sm primary" id="ptRestoreApplyBtn" onclick="ptRestoreApply()" style="display:none">Confirm &amp; restore</button>
       <span id="ptRestoreMsg" class="small muted"></span>
     </div>
@@ -1295,24 +1293,21 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <div id="tagManager"></div>
   </div>
 
-  <div class="card" data-cat="general">
+  <div class="card" data-cat="data">
     <h3>Studios &amp; Series cleanup</h3>
-    <div class="small muted" style="margin-bottom:8px">Remove empty entities. A series with no linked activities, or a studio with no series, can be deleted in one tap. You'll be asked to confirm.</div>
     <div class="databtns">
       <button class="danger" onclick="deleteEmptySeries()">🗑 Delete series with no activities</button>
       <button class="danger" onclick="deleteEmptyStudios()">🗑 Delete studios with no series</button>
     </div>
   </div>
 
-  <div class="card" data-cat="general">
+  <div class="card" data-cat="data">
     <h3>Repair corrupted dates</h3>
-    <div class="small muted" style="margin-bottom:8px">Some dates may have been saved in a raw form like <code>Mon Apr 26 2004 00:00:00 GMT-0700</code>. This one-time fix scans every person birth date, activity date and seen-week and reformats them to <code>YYYY-MM-DD</code> (filling in the year only where it's missing). You'll be shown a count and asked to confirm.</div>
     <div class="databtns"><button onclick="repairCorruptDates()">🩹 Scan &amp; fix corrupted dates</button></div>
   </div>
 
-  <div class="card" data-cat="general">
+  <div class="card" data-cat="data">
     <h3>Find duplicate people</h3>
-    <div class="small muted" style="margin-bottom:8px">Groups people who look like the same person — comparing each person's <b>name and alias</b> (case, accents and punctuation ignored, word order too). A match on a <i>name ↔ alias</i> counts. Pick the primary to keep, tick who to merge in, and <b>Merge</b> combines everything (activities, ratings, awards, teams, photos, tags…) — you'll be asked to resolve any conflicting values first.</div>
     <div class="databtns"><button onclick="scanDuplicatePeople()">🔍 Scan for duplicates</button></div>
     <div id="dupResults" style="margin-top:10px"></div>
   </div>
@@ -1561,7 +1556,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "405";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "406";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -6855,7 +6850,7 @@ async function ptRestoreApply(){
   try{ await syncNow(true); }
   catch(e){ ptSetErr("Saved locally; sync failed — "+e.message+". It will retry on the next sync."); return; }
   ptSetDone(`${summary} ✓ — now update/refresh your other devices.`);
-  _ptRestorePlans=[]; $("ptRestoreText").value=""; $("ptRestoreOut").innerHTML=""; rerenderActive(); }
+  _ptRestorePlans=[]; $("ptRestoreOut").innerHTML=""; rerenderActive(); }
 function saveSyncCfg(){ SYNC.url=$("syncUrl").value.trim(); SYNC.secret=$("syncSecret").value.trim(); SYNC.on=$("syncOn").checked; saveSync(); }
 function addCat(){ const v=$("newCat").value.trim(); if(!v)return; const s=DB.settings.categories=DB.settings.categories||[];
   if(!s.some(c=>c.label.toLowerCase()===v.toLowerCase())) s.push({id:uid("cat"),label:v}); $("newCat").value=""; bumpSettings(); commit(); renderSettings(); }
