@@ -1556,7 +1556,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "406";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "407";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2416,7 +2416,12 @@ function mergeAdditive(cur,inc,spec,gate){
       if(added){ out[fd.f]=merged; counts[fd.f]=added; } } });
   return {out,counts,orphan};
 }
-// ---- per-record sync metadata (syncMeta = {del, fts}) --------------------------------------------
+// ---- per-record sync metadata (syncMeta = {del, add, fts}) — a LWW-element-set for additive lists ----
+// Every additive list/photolist item is an element of an LWW-Set: it carries an ADD time (`add`) and a
+// DELETE time (`del`), and is PRESENT after a merge iff its newest add is newer than its newest delete.
+// That is what makes a deletion stick: a stale device that merely still HOLDS a photo (never re-added it)
+// contributes NO add stamp, so a newer tombstone from any device wins — no matter how high that stale
+// device's record-level updatedAt is. Only a genuine re-add (add newer than the tombstone) resurrects an item.
 // `del`: deletion tombstones — key `"<field><canon(item)>" → ts` marks an additive list/photolist
 //        item the user removed, so the union merge below won't resurrect it from a stale device.
 // `fts`: per-field timestamps — key `<scalarField> → ts` records when a scalar (name/country/year/…) was
@@ -2425,14 +2430,14 @@ function mergeAdditive(cur,inc,spec,gate){
 // tombstones absent ⇒ union resurrects (old behaviour); fts absent ⇒ 0 ⇒ tie ⇒ whole-record LWW (old behaviour).
 const META_SEP=String.fromCharCode(1);   // U+0001 separator: cannot occur in a field name or URL
 const META_INTERNAL=new Set(["id","updatedAt","createdAt","syncMeta","deleted","actorId"]);   // never treated as a synced scalar
-function _canonHas(arr,key){ return (arr||[]).some(x=>_canon(x)===key); }
-// max-merge two {del,fts} maps (monotonic: keep the newest ts seen for each key on either side)
+// max-merge two {del,add,fts} maps (monotonic: keep the newest ts seen for each key on either side)
 function mergeMeta(a,b){ a=a||{}; b=b||{};
   const del=Object.assign({},a.del||{}); const bd=b.del||{}; for(const k in bd){ if(!(k in del)||bd[k]>del[k]) del[k]=bd[k]; }
+  const add=Object.assign({},a.add||{}); const ba=b.add||{}; for(const k in ba){ if(!(k in add)||ba[k]>add[k]) add[k]=ba[k]; }
   const fts=Object.assign({},a.fts||{}); const bf=b.fts||{}; for(const k in bf){ if(!(k in fts)||bf[k]>fts[k]) fts[k]=bf[k]; }
-  return {del,fts}; }
-function _metaEmpty(m){ return !m || (!Object.keys(m.del||{}).length && !Object.keys(m.fts||{}).length); }
-function _metaNorm(m){ return _metaEmpty(m)?null:{del:m.del||{},fts:m.fts||{}}; }
+  return {del,add,fts}; }
+function _metaEmpty(m){ return !m || (!Object.keys(m.del||{}).length && !Object.keys(m.add||{}).length && !Object.keys(m.fts||{}).length); }
+function _metaNorm(m){ return _metaEmpty(m)?null:{del:m.del||{},add:m.add||{},fts:m.fts||{}}; }
 // Reconcile hook: start from the newer record, then (1) for each scalar, take whichever side stamped it more
 // recently (tie → winner); (2) union every additive list/photolist, but DROP any unioned item a tombstone says
 // was deleted more recently than it was (re)added; (3) union tagmap/map fields; (4) carry the merged syncMeta.
@@ -2452,11 +2457,9 @@ function reconcileWith(winner,loser,spec){
     if(fd.kind==="list"||fd.kind==="photolist"){
       const merged=unionArr(cv,iv).merged;
       const kept=merged.filter(it=>{ const key=fd.f+META_SEP+_canon(it), delTs=(meta.del&&meta.del[key])||0;
-        if(!delTs) return true;   // no tombstone → keep
-        const liveW=_canonHas(cv,_canon(it)) && !(wMeta.del&&wMeta.del[key]);   // present & not tombstoned on winner
-        const liveL=_canonHas(iv,_canon(it)) && !(lMeta.del&&lMeta.del[key]);
-        const addTs=Math.max(liveW?(winner.updatedAt||0):0, liveL?(loser.updatedAt||0):0);
-        return addTs>delTs; });   // keep only if a live side is newer than the deletion (bias: resurrect over lose)
+        if(!delTs) return true;                        // never deleted → union keeps it (legacy-safe default)
+        const addTs=(meta.add&&meta.add[key])||0;      // LWW-Set: present iff a re-add is newer than the deletion.
+        return addTs>delTs; });                        // a stale peer merely holding the item has no add stamp → dropped
       const wKeys=new Set((cv||[]).map(_canon));
       if(kept.length!==wKeys.size || kept.some(it=>!wKeys.has(_canon(it)))){ base[fd.f]=kept; changed=true; }
     } else if(fd.kind==="tagmap"){ const bmap=cv||{}, m2=Object.assign({},bmap); let add=false;
@@ -2479,7 +2482,8 @@ function reconcileCollection(winner,loser){ return reconcileWith(winner,loser,AD
 // ---- syncMeta derivation: diff each record against the last-synced baseline to record what changed locally ----
 // A record's deletion tombstones / field timestamps are DERIVED (not written at every edit site): we snapshot the
 // synced state and, just before a sync, diff the current record against it. A scalar whose value changed → stamp
-// fts[field]; an additive list item that vanished → tombstone del[field|item]; one that reappeared → clear it.
+// fts[field]; an additive list item that vanished → tombstone del[field|item]; one that appeared → add[field|item]
+// (a genuine re-add gets an add stamp newer than any prior tombstone, so the LWW-Set resurrects it — and only it).
 const META_COLLS=["actors","events","studios","series","teams","collections"];
 function _snapRec(r,spec){ const sc={}, li={}, additive=new Set(spec.fields.map(f=>f.f));
   for(const k in r){ if(META_INTERNAL.has(k)||additive.has(k)) continue; const v=r[k]; if(v===null||typeof v==="object") continue; sc[k]=v; }
@@ -2496,15 +2500,15 @@ function stampSyncMeta(){
   META_COLLS.forEach(c=>{ const spec=ADDITIVE[c], base=_syncBase[c]||{};
     (DB[c]||[]).forEach(r=>{ const b=base[r.id]; if(!b) return;   // brand-new record: no prior state to diff against
       const cur=_snapRec(r,spec);
-      const del=Object.assign({}, (r.syncMeta&&r.syncMeta.del)||{}), fts=Object.assign({}, (r.syncMeta&&r.syncMeta.fts)||{});
+      const del=Object.assign({}, (r.syncMeta&&r.syncMeta.del)||{}), add=Object.assign({}, (r.syncMeta&&r.syncMeta.add)||{}), fts=Object.assign({}, (r.syncMeta&&r.syncMeta.fts)||{});
       let dirty=false;
       for(const k in cur.sc){ if(cur.sc[k]!==b.sc[k]){ fts[k]=t; dirty=true; } }        // scalar changed
       for(const k in b.sc){ if(!(k in cur.sc)){ fts[k]=t; dirty=true; } }               // scalar cleared
       spec.fields.forEach(fd=>{ if(fd.kind!=="list"&&fd.kind!=="photolist") return;
-        const before=b.li[fd.f]||[], after=new Set(cur.li[fd.f]||[]);
-        before.forEach(k=>{ if(!after.has(k)){ del[fd.f+META_SEP+k]=t; dirty=true; } });   // item removed → tombstone
-        after.forEach(k=>{ const dk=fd.f+META_SEP+k; if(del[dk]!=null){ delete del[dk]; dirty=true; } }); });  // re-added → clear
-      if(dirty){ const m=_metaNorm({del,fts}); if(m) r.syncMeta=m; else delete r.syncMeta;
+        const before=new Set(b.li[fd.f]||[]), after=new Set(cur.li[fd.f]||[]);
+        (b.li[fd.f]||[]).forEach(k=>{ if(!after.has(k)){ del[fd.f+META_SEP+k]=t; dirty=true; } });    // item removed → tombstone
+        (cur.li[fd.f]||[]).forEach(k=>{ if(!before.has(k)){ add[fd.f+META_SEP+k]=t; dirty=true; } }); }); // item (re)appeared → add stamp (beats any tombstone)
+      if(dirty){ const m=_metaNorm({del,add,fts}); if(m) r.syncMeta=m; else delete r.syncMeta;
         r.updatedAt=Math.max(r.updatedAt||0,t); DB.rev=Math.max(DB.rev||0,t); } }); });
 }
 function maxTs(){
