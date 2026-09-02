@@ -1556,7 +1556,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "407";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "408";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1979,6 +1979,7 @@ async function load(){
 let _saveT=null;
 function save(){ if(PRIVATE) return; clearTimeout(_saveT); _saveT=setTimeout(saveNow,250); }   // debounced (coalesces bursts; off the main thread). Private mode never persists (obfuscated data must not overwrite the real DB).
 function saveNow(){ clearTimeout(_saveT); _saveT=null;
+  try{ stampSyncMeta(); }catch(e){}   // bake deletions/edits into syncMeta at PERSIST time so a tombstone survives reload/close/offline (not only at scheduled-sync time)
   idbSet(IDB_KEY,DB).catch(()=>{ try{ localStorage.setItem(LS,JSON.stringify(DB)); }catch(e){} }); }   // fall back to localStorage if IDB is unavailable
 // Categories are {id,label} and awards reference the id. This upgrades any legacy data (string
 // categories, or reward rows that still store the category NAME) to the id form. Idempotent.
@@ -2497,9 +2498,10 @@ function _seedSyncBase(){ _syncBase=snapSyncBase(); }   // capture the current (
 function stampSyncMeta(){
   if(!_syncBase) { _seedSyncBase(); return; }
   const t=now();
-  META_COLLS.forEach(c=>{ const spec=ADDITIVE[c], base=_syncBase[c]||{};
-    (DB[c]||[]).forEach(r=>{ const b=base[r.id]; if(!b) return;   // brand-new record: no prior state to diff against
-      const cur=_snapRec(r,spec);
+  META_COLLS.forEach(c=>{ const spec=ADDITIVE[c], base=_syncBase[c]||(_syncBase[c]={});
+    (DB[c]||[]).forEach(r=>{ if(!r||r.id==null) return;
+      const cur=_snapRec(r,spec), b=base[r.id];
+      if(!b){ base[r.id]=cur; return; }   // brand-new record: baseline it now so future edits/deletes diff against it (union covers its initial adds)
       const del=Object.assign({}, (r.syncMeta&&r.syncMeta.del)||{}), add=Object.assign({}, (r.syncMeta&&r.syncMeta.add)||{}), fts=Object.assign({}, (r.syncMeta&&r.syncMeta.fts)||{});
       let dirty=false;
       for(const k in cur.sc){ if(cur.sc[k]!==b.sc[k]){ fts[k]=t; dirty=true; } }        // scalar changed
@@ -2508,6 +2510,7 @@ function stampSyncMeta(){
         const before=new Set(b.li[fd.f]||[]), after=new Set(cur.li[fd.f]||[]);
         (b.li[fd.f]||[]).forEach(k=>{ if(!after.has(k)){ del[fd.f+META_SEP+k]=t; dirty=true; } });    // item removed → tombstone
         (cur.li[fd.f]||[]).forEach(k=>{ if(!before.has(k)){ add[fd.f+META_SEP+k]=t; dirty=true; } }); }); // item (re)appeared → add stamp (beats any tombstone)
+      base[r.id]=cur;   // advance baseline for this record → the next stamp diffs incrementally (no re-stamp / no per-save churn)
       if(dirty){ const m=_metaNorm({del,add,fts}); if(m) r.syncMeta=m; else delete r.syncMeta;
         r.updatedAt=Math.max(r.updatedAt||0,t); DB.rev=Math.max(DB.rev||0,t); } }); });
 }
