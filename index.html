@@ -326,11 +326,13 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 #phototagView.grhost #grGallery.g1 .g img{object-fit:contain}
 #phototagView.grhost .grfoot{flex:0 0 auto;padding:8px 0 2px}
 /* gear settings menu (resolution / grid / rated-only) — shared by both hosts */
-.grgearmenu{min-width:210px;padding:6px;overflow:auto}
+.grgearmenu{min-width:264px;padding:6px;overflow:auto}
 .grgearmenu>*{flex:0 0 auto}   /* don't let a tall menu squash the res/grid rows — scroll instead */
-.grtagfilter{display:flex;flex-direction:column;gap:4px;margin-bottom:2px}
-.grtagfilter button{width:100%;text-align:left;padding:5px 10px;border-radius:8px;font-size:13px}
+.grtagfilter{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:2px}   /* 2 tag filters per row */
+.grtagfilter button{width:100%;text-align:center;padding:7px 8px;border-radius:8px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grtagfilter button.grfav{grid-column:1/-1}   /* ⭐ Favorite spans the full width on its own row */
 .grtagfilter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grtagfilter button.grfav.on{background:var(--gold);color:#111;border-color:var(--gold)}
 .grgear-sec{font-size:11px;color:var(--muted);margin:7px 4px 4px;text-transform:uppercase;letter-spacing:.4px}
 .grgear-sec:first-child{margin-top:2px}
 .grgearmenu .seg.full{margin-bottom:2px}
@@ -505,7 +507,7 @@ body.alt-activity #activityViewOverlay .photogrid .pg{aspect-ratio:16/9}
 .fmenu.right{left:auto;right:0}
 /* gear menu is ALWAYS right-aligned (menu's right edge to the button's right edge) so it never runs off
    the right of the screen. Anchored to .grgearmenu (never stripped) not .right (removed by menu-close handlers). */
-.fmenu.grgearmenu{left:auto;right:0}
+.fmenu.grgearmenu{left:auto;right:0;max-width:min(360px,92vw)}
 .fmenu.show{display:flex}
 .fmenu .fsearch{width:100%;font-size:12px;padding:5px 8px;margin-bottom:4px;flex:none}
 .fmenu .fopts{overflow:auto;flex:1}
@@ -1312,6 +1314,12 @@ button.boolcap{cursor:pointer;font-family:inherit}
     <div id="dupResults" style="margin-top:10px"></div>
   </div>
 
+  <div class="card" data-cat="data">
+    <h3>Convert “auto-added” tag → meta tag</h3>
+    <div class="databtns"><button onclick="migrateAutoAddedTag()">🏷️ Move auto-added to meta tags</button></div>
+    <div id="autoTagOut" style="margin-top:10px"></div>
+  </div>
+
   <div class="card" data-cat="ratings">
     <h3>Leaderboard weights</h3>
     <div class="small muted" style="margin-bottom:8px">Rewards Score = Activities·w + Nominations·w + Wins·w. &nbsp;Global Score = Physical·w + Personality·w + Rewards.</div>
@@ -1556,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "408";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "409";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -3295,7 +3303,8 @@ const F_EMPTY="(empty)";   // sentinel option to match rows that have no value f
 const F_BOOL="✓";   // the single stored value of a boolean filter (add it with ＋ = "has", with − = "hasn't"); no value menu
 // a "lacking X" (−) boolean filter drops rows carrying the matching meta tag — the user's way of saying
 // "yes I know this record has no photo/rating/etc., stop surfacing it in that search". facet key → meta key.
-const FACET_META={ photo:"no-photo", rated:"no-rating", fulldob:"no-dob", favlink:"no-fav-link", fulldate:"no-date" };
+const FACET_META={ photo:"no-photo", rated:"no-rating", fulldob:"no-dob", favlink:"no-fav-link", fulldate:"no-date",
+  enoughtags:"no-photo", enoughfav:"no-photo" };   // No-Photo implies "not enough tags / favorites" → opt those out too (no photos ⇒ can't have tagged/favorite photos)
 function fOptions(rows,f){ const set=new Set(); let hasEmpty=false;
   rows.forEach(r=>{ const vals=f.values(r).map(v=>String(v==null?"":v).trim()).filter(Boolean); if(!vals.length) hasEmpty=true; vals.forEach(v=>set.add(v)); });
   const arr=[...set].sort((x,y)=> f.numeric ? (Number(x)-Number(y)) : x.localeCompare(y,undefined,{numeric:true,sensitivity:"base"}));
@@ -4720,7 +4729,7 @@ function onEventLangChange(){ const e=window.__draftEvent; if(!e) return; e.attr
   autoSaveEvent(); }
 // quick-create a name-only person and attach them to the activity being edited
 function newPersonForEvent(){ const name=prompt("New person's name:"); if(name==null) return; const nm=capText(String(name).trim()); if(!nm) return;
-  const t=now(); const a={ id:uid("ac"), name:nm, alias:"", photoURLs:[], profilePics:[], links:[], tags:["auto-added"], country:"", state:"", yearOfBirth:"", dob:"", careerStart:"", careerEnd:"", eyeColor:[], hairColor:[], attrs:{}, deleted:false, createdAt:t, updatedAt:t };
+  const t=now(); const a={ id:uid("ac"), name:nm, alias:"", photoURLs:[], profilePics:[], links:[], tags:[], metaTags:["auto-added"], country:"", state:"", yearOfBirth:"", dob:"", careerStart:"", careerEnd:"", eyeColor:[], hairColor:[], attrs:{}, deleted:false, createdAt:t, updatedAt:t };
   DB.actors.push(a); DB.rev=Math.max(DB.rev||0,t);
   const e=window.__draftEvent; if(e){ e.actorIds=e.actorIds||[]; e.actorIds.push(a.id); }
   commit(); renderEvPeople(); autoSaveEvent(); toast("Added "+nm); }
@@ -4760,6 +4769,7 @@ const META_TAGS=[
   {key:"no-date",      label:"No Date",          ent:["activity"]},
   {key:"broken-images",label:"Broken Images",    ent:["person","activity"]},
   {key:"low-quality",  label:"Low Quality",      ent:["person","activity"]},
+  {key:"auto-added",   label:"Auto-Added",       ent:["person"]},   // auto-applied to name-only stubs (quick-add / import) so incomplete profiles are easy to find
   {key:"excluded",     label:"Excluded",         ent:["person"]},
 ];
 function metaTagsFor(ent){ return META_TAGS.filter(m=>m.ent.includes(ent)); }
@@ -5068,6 +5078,15 @@ function findDuplicatePeople(list){ const ppl=(list||actors()).filter(p=>p&&!p.d
   return Object.values(groups).filter(g=>g.length>1)
     .map(g=>g.slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")))
     .sort((a,b)=>b.length-a.length || (a[0].name||"").localeCompare(b[0].name||"")); }
+// One-off migration: earlier builds tagged auto-created stubs with a plain "auto-added" tag; it's now a meta tag.
+// Move it from tags[] to metaTags[] on every existing person, then sync so peers pick up the change.
+function migrateAutoAddedTag(){ const el=$("autoTagOut"); const t=now(); let moved=0;
+  actors().forEach(a=>{ if(!a.tags||!a.tags.includes("auto-added")) return;
+    a.tags=a.tags.filter(x=>x!=="auto-added");
+    a.metaTags=a.metaTags||[]; if(!a.metaTags.includes("auto-added")) a.metaTags.push("auto-added");
+    a.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); moved++; });
+  if(el) el.innerHTML=`<span class="small muted">${moved?`Moved ${moved} ${moved===1?"person":"people"} from the “auto-added” tag to the meta tag.`:"No people carry the “auto-added” tag — nothing to do 👍"}</span>`;
+  if(moved){ commit(); syncNow(true); } }
 function scanDuplicatePeople(){ const el=$("dupResults"); if(!el) return;
   const groups=findDuplicatePeople();
   if(!groups.length){ el.innerHTML='<span class="small muted">No duplicates found — every person has a distinct name &amp; alias 👍</span>'; return; }
@@ -7378,7 +7397,7 @@ function importSimple(obj){
     return bd<=1?best:null; }
   // create a name-only profile (no photo → the 👤 placeholder shows as its thumbnail everywhere).
   // tagged "auto-added" so these incomplete profiles are easy to find/fill in later (search the tag).
-  function newStub(name){ const a={ id:uid("ac"), name:norm(name), alias:"", country:"", state:"", yearOfBirth:"", dob:"", careerStart:"", careerEnd:"", eyeColor:[], hairColor:[], tags:["auto-added"], photoURLs:[], links:[], attrs:{}, deleted:false, createdAt:t, updatedAt:t };
+  function newStub(name){ const a={ id:uid("ac"), name:norm(name), alias:"", country:"", state:"", yearOfBirth:"", dob:"", careerStart:"", careerEnd:"", eyeColor:[], hairColor:[], tags:[], metaTags:["auto-added"], photoURLs:[], links:[], attrs:{}, deleted:false, createdAt:t, updatedAt:t };
     DB.actors.push(a); byId[a.id]=a; byName[lc(name)]=a; np++; return a; }
 
   const refs=new Set();
@@ -7829,9 +7848,9 @@ function grCommit(t){ if(t===window.__draftActor||t===window.__draftEvent){ refr
 function grResetCommon(){ grMode=""; grPage=1; grDel=new Set(); grArmed=""; grQual={}; grQualSeq++; grHidden=new Set(); grTagFilter=null; }
 // Available tag-filter keys for the current review target: ⭐ favorite + (person only) the physical skill tags.
 function grTagKeys(){ const ks=["fav"]; if(grKind!=="activity") skillsByCat("physical").forEach(s=>ks.push(s.key)); return ks; }
-function grTagFiltering(){ if(grBoard!=="review"||!grTagFilter) return false; const all=grTagKeys().length; return grTagFilter.size>0 && grTagFilter.size<all; }
+function grTagFiltering(){ return grBoard==="review" && !!grTagFilter && grTagFilter.size>0; }   // any tag selected → filter; none selected → show all
 function grPhotoHasTag(t,u,key){ return key==="fav" ? (t.profilePics||[]).includes(u) : photoTagsOf(t,u).indexOf(key)>=0; }
-function grToggleTagKey(key){ if(!grTagFilter) grTagFilter=new Set(grTagKeys());   // first toggle starts from "all on" then removes this one
+function grToggleTagKey(key){ if(!grTagFilter) grTagFilter=new Set();   // all filters OFF by default (show everything); each pick narrows to photos carrying that tag (union across picks)
   if(grTagFilter.has(key)) grTagFilter.delete(key); else grTagFilter.add(key);
   grPage=1; grKeepGearOpen(); }
 // The shared board markup, injected into whichever host is active (overlay for review, #phototagView for tag).
@@ -7881,7 +7900,7 @@ function grRenderGear(){ const m=$("grGearMenu"); if(!m) return;
   const gridOpt=n=>`<button class="${grGrid===n?"on":""}" onclick="grSetGrid(${n})">${n}</button>`;
   const tagKeys=grBoard==="review"?grTagKeys():[];
   const tagRow=k=>{ const lbl=k==="fav"?"⭐ Favorite":(()=>{ const s=(DB.settings.skills||[]).find(x=>x.key===k); return esc(s?s.label:k); })();
-    const on=!grTagFilter||grTagFilter.has(k); return `<button class="${on?"on":""}" onclick="grToggleTagKey('${attrJs(k)}')">${lbl}</button>`; };
+    const on=!!grTagFilter&&grTagFilter.has(k); return `<button class="${on?"on":""}${k==="fav"?" grfav":""}" onclick="grToggleTagKey('${attrJs(k)}')">${lbl}</button>`; };
   m.innerHTML=`
     <div class="grgear-sec">Resolution</div>
     <div class="seg full">${resOpt("any","🔵","Any")}${resOpt("high","🟢","High")}${resOpt("med","🟡","Med")}${resOpt("low","🔴","Low")}</div>
