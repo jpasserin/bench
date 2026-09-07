@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "409";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "410";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -3998,11 +3998,17 @@ function readActorDraft(){   // pull current field values into the draft; null i
     a.attrs[at.key]=v; });
   return a;
 }
+// Merge an editor draft into its live DB record. CRUCIAL: syncMeta (deletion tombstones + field
+// timestamps) is DERIVED on the live record by stampSyncMeta/merge and is never mirrored into the draft
+// clone — so the draft's stale syncMeta must NOT clobber it, or a just-deleted photo loses its tombstone
+// and resurrects on the next pull. The live record's syncMeta is always authoritative.
+function assignDraft(existing,draft){ const keep=existing.syncMeta; Object.assign(existing,draft);
+  if(keep) existing.syncMeta=keep; else delete existing.syncMeta; }
 function persistActorDraft(){
   const a=readActorDraft(); if(!a || !a.name) return;   // don't persist a nameless person
   const t=now(); a.updatedAt=t; if(!a.createdAt) a.createdAt=t; a.deleted=false;
   const existing=DB.actors.find(x=>x.id===a.id);
-  if(existing) Object.assign(existing,a); else DB.actors.push(a);
+  if(existing) assignDraft(existing,a); else DB.actors.push(a);
   editingActorId=a.id; DB.rev=Math.max(DB.rev||0,t); save(); scheduleSync();
 }
 function autoSaveActor(){ if(!$("actorOverlay")||!$("actorOverlay").classList.contains("show")) return;   // only when the profile editor is open
@@ -4036,7 +4042,7 @@ function saveActor(){
 }
 function commitActor(a,existing){
   const t=now(); a.updatedAt=t; if(!a.createdAt)a.createdAt=t; a.deleted=false;
-  if(existing) Object.assign(existing,a); else DB.actors.push(a);
+  if(existing) assignDraft(existing,a); else DB.actors.push(a);
   DB.rev=Math.max(DB.rev||0,t);
   commit(); closeOverlay("actorOverlay"); renderActors(1); toast("Person saved");
 }
@@ -4817,7 +4823,7 @@ function persistEventDraft(){
   const ser=e.seriesId?seriesById(e.seriesId):null;
   if(ser){ const st=studioById(ser.studioId); e.series=ser.name||""; e.studioName=(st&&!st.deleted)?st.name:""; }
   const t=now(); e.updatedAt=t; if(!e.createdAt)e.createdAt=t; e.deleted=false;
-  const ex=DB.events.find(x=>x.id===e.id); if(ex)Object.assign(ex,e); else DB.events.push(e);
+  const ex=DB.events.find(x=>x.id===e.id); if(ex)assignDraft(ex,e); else DB.events.push(e);
   DB.rev=Math.max(DB.rev||0,t); save(); scheduleSync();
 }
 function autoSaveEvent(){ if(!$("eventOverlay")||!$("eventOverlay").classList.contains("show")) return;
@@ -5016,7 +5022,7 @@ function readStudioDraft(){ const s=window.__draftStudio; if(!s||!$("st_name")) 
 function persistStudioDraft(){ const s=readStudioDraft(); if(!s) return;
   if(!s.name && !(s.photoURLs||[]).length && !(s.tags||[]).length && !(s.links||[]).length) return;   // don't persist an empty studio
   const t=now(); s.updatedAt=t; if(!s.createdAt)s.createdAt=t; s.deleted=false;
-  const ex=DB.studios.find(x=>x.id===s.id); if(ex)Object.assign(ex,s); else DB.studios.push(s);
+  const ex=DB.studios.find(x=>x.id===s.id); if(ex)assignDraft(ex,s); else DB.studios.push(s);
   DB.rev=Math.max(DB.rev||0,t); save(); scheduleSync(); }
 function autoSaveStudio(){ if(!$("studioOverlay")||!$("studioOverlay").classList.contains("show")) return; clearTimeout(_studioSaveT); _studioSaveT=setTimeout(persistStudioDraft,400); }
 let _pendingStudioForSeries=false;
@@ -5258,7 +5264,7 @@ function readSeriesDraft(){ const se=window.__draftSeries; if(!se||!$("se_name")
 function persistSeriesDraft(){ const se=readSeriesDraft(); if(!se) return;
   if(!se.name && !(se.photoURLs||[]).length && !(se.tags||[]).length && !(se.links||[]).length) return;
   const t=now(); se.updatedAt=t; if(!se.createdAt)se.createdAt=t; se.deleted=false;
-  const ex=DB.series.find(x=>x.id===se.id); if(ex)Object.assign(ex,se); else DB.series.push(se);
+  const ex=DB.series.find(x=>x.id===se.id); if(ex)assignDraft(ex,se); else DB.series.push(se);
   DB.rev=Math.max(DB.rev||0,t); save(); scheduleSync(); }
 function autoSaveSeries(){ if(!$("seriesOverlay")||!$("seriesOverlay").classList.contains("show")) return; clearTimeout(_seriesSaveT); _seriesSaveT=setTimeout(persistSeriesDraft,400); }
 let _pendingSeriesForEvent=false;
@@ -5322,7 +5328,7 @@ function readTeamDraft(){ const t=window.__draftTeam; if(!t||!$("tm_name")) retu
 function persistTeamDraft(){ const t=readTeamDraft(); if(!t) return;
   if(!t.name && !(t.memberIds||[]).length && !(t.photoURLs||[]).length) return;   // don't persist an empty team
   const ts=now(); t.updatedAt=ts; if(!t.createdAt)t.createdAt=ts; t.deleted=false;
-  const ex=DB.teams.find(x=>x.id===t.id); if(ex)Object.assign(ex,t); else DB.teams.push(t);
+  const ex=DB.teams.find(x=>x.id===t.id); if(ex)assignDraft(ex,t); else DB.teams.push(t);
   DB.rev=Math.max(DB.rev||0,ts); save(); scheduleSync(); }
 function autoSaveTeam(){ if(!$("teamOverlay")||!$("teamOverlay").classList.contains("show")) return; clearTimeout(_teamSaveT); _teamSaveT=setTimeout(persistTeamDraft,400); }
 function closeTeamEditor(){ clearTimeout(_teamSaveT); persistTeamDraft(); const t=window.__draftTeam, ex=t&&teamById(t.id); closeOverlay("teamOverlay"); if(ex&&!ex.deleted) openTeam(t.id); else renderTeams(); }
@@ -5359,7 +5365,7 @@ function readCollectionDraft(){ const c=window.__draftCollection; if(!c||!$("cl_
 function persistCollectionDraft(){ const c=readCollectionDraft(); if(!c) return;
   if(!c.name && !(c.activityIds||[]).length && !(c.photoURLs||[]).length) return;
   const ts=now(); c.updatedAt=ts; if(!c.createdAt)c.createdAt=ts; c.deleted=false;
-  const ex=DB.collections.find(x=>x.id===c.id); if(ex)Object.assign(ex,c); else DB.collections.push(c);
+  const ex=DB.collections.find(x=>x.id===c.id); if(ex)assignDraft(ex,c); else DB.collections.push(c);
   DB.rev=Math.max(DB.rev||0,ts); save(); scheduleSync(); }
 function autoSaveCollection(){ if(!$("collectionOverlay")||!$("collectionOverlay").classList.contains("show")) return; clearTimeout(_collSaveT); _collSaveT=setTimeout(persistCollectionDraft,400); }
 function closeCollectionEditor(){ clearTimeout(_collSaveT); persistCollectionDraft(); const c=window.__draftCollection, ex=c&&collectionById(c.id); closeOverlay("collectionOverlay"); if(ex&&!ex.deleted) openCollection(c.id); else renderCollections(); }
