@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "412";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "413";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7995,7 +7995,8 @@ function grKeepGearOpen(){ grRender(); grRenderGear(); const m=$("grGearMenu"); 
 function grRenderControls(){ const t=grTarget();
   const name = grKind==="activity" ? (t&&(t.eventName||"Activity")) : (t&&(t.name||"Person"));
   const tEl=$("grTitle");
-  if(grBoard==="tag" && t) tEl.innerHTML=`👁 <span style="text-decoration:underline;cursor:pointer" title="Review this person's gallery" onclick="openGalleryReview('person','${attrJs(t.id)}')">${esc(name)}</span>`;
+  if(grBoard==="tag" && t){ const pct=Math.round(ptTaggedPct(t)*100);
+    tEl.innerHTML=`👁 <span style="text-decoration:underline;cursor:pointer" title="Review this person's gallery" onclick="openGalleryReview('person','${attrJs(t.id)}')">${esc(name)}</span> <span class="muted" style="font-size:11px;font-weight:400" title="Share of this person's photos that are tagged">${pct}% tagged</span>`; }
   else tEl.textContent="👁 "+(name||"");
   grSetResLoading(false); }   // resolution / grid / rated-only now live in the ⚙️ gear menu (grRenderGear)
 function grRenderTools(){ const t=grTarget(); if(!t) return; let html="";
