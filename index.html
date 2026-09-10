@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "410";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "411";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7955,14 +7955,17 @@ function grToggleRated(){ grRatedOnly=!grRatedOnly; try{ localStorage.setItem("b
   if(!grTagPick){ grRenderGear(); return toast(grRatedOnly?"No fully-rated people with photos":"No people with photos"); }
   if(grRes!=="any") grEnsureQuality(); grKeepGearOpen(); }
 function ptHasUntagged(a){ return (a.photoURLs||[]).filter(Boolean).some(u=>!photoTagsOf(a,u).length); }   // ≥1 photo with no tag yet
-// TAG mode: pick a random person who still has untagged photos (the board never shows tagged ones), favoring
-// the brand-new. Falls back to the whole pool only once everyone is fully tagged.
+function ptTaggedPct(a){ const urls=(a.photoURLs||[]).filter(Boolean); if(!urls.length) return 1;   // share of a person's photos that carry ≥1 tag (0 = nothing tagged yet)
+  return urls.filter(u=>photoTagsOf(a,u).length).length/urls.length; }
+// TAG mode: serve the person who's furthest behind — the LOWEST share of tagged photos first (so 5/20 tagged
+// = 25% takes priority over 15/20 = 75%; brand-new 0% naturally leads). Ties broken at random. Only people who
+// still have an untagged photo are eligible (the board never shows already-tagged ones).
 function grPickTagSet(){ let pool=actors().filter(a=>(a.photoURLs||[]).filter(Boolean).length);
   if(grRatedOnly){ const r=pool.filter(a=>isFullyRated(a.id)); if(r.length) pool=r; }
   if(!pool.length) return null;
   const withUntag=pool.filter(ptHasUntagged); if(withUntag.length) pool=withUntag;   // don't serve people with nothing left to tag
-  const t0=pool.filter(a=>!ptPersonTagged(a));   // brand-new (no tagged photo yet) first
-  const src=t0.length?t0:pool;
+  const scored=pool.map(a=>({id:a.id, pct:ptTaggedPct(a)})), lo=Math.min(...scored.map(s=>s.pct));
+  const src=scored.filter(s=>s.pct<=lo+1e-9);   // everyone tied at the lowest tagged-percentage
   return src[Math.floor(Math.random()*src.length)].id; }
 // TAG mode photos for the current person: resolution-filtered, and NEVER already-tagged (tag board only).
 function grTagAllUrls(){ const a=grTarget(); if(!a) return [];
