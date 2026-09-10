@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "411";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "412";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7841,6 +7841,7 @@ function grTagSnapshot(){ grTagView = grBoard==="tag" ? grTagAllUrls().slice(0,g
 let grGrid=Number(localStorage.getItem("bench_gr_grid"))||1;   // photos per view: 1 | 4 | 12
 let grRes=localStorage.getItem("bench_gr_res")||"any";         // resolution filter: any | high | med | low
 let grRatedOnly=localStorage.getItem("bench_gr_rated")!=="0";  // TAG mode: only fully-rated people (default on)
+let grExclEnough=localStorage.getItem("bench_gr_exclenough")!=="0";  // TAG mode: exclude people who already have enough tags (default on)
 if([1,4,12].indexOf(grGrid)<0) grGrid=1;
 function grTarget(){ if(grBoard==="tag") return grTagPick?actorById(grTagPick):null;
   const d=grDraftFor(); if(d) return d;   // review opened from an open editor → mutate its DRAFT, not the DB copy (else the draft's autosave clobbers our fav/delete)
@@ -7913,6 +7914,7 @@ function grRenderGear(){ const m=$("grGearMenu"); if(!m) return;
     <div class="grgear-sec">Photos per view</div>
     <div class="seg full">${gridOpt(1)}${gridOpt(4)}${gridOpt(12)}</div>
     ${grBoard==="tag"?`<label><input type="checkbox" ${grRatedOnly?"checked":""} onchange="grToggleRated()"> Fully-rated people only</label>`:""}
+    ${grBoard==="tag"?`<label><input type="checkbox" ${grExclEnough?"checked":""} onchange="grToggleExclEnough()"> Exclude people with enough tags</label>`:""}
     ${tagKeys.length?`<div class="grgear-sec">Tags</div><div class="grtagfilter">${tagKeys.map(tagRow).join("")}</div>`:""}`; }
 // Off-screen-load the target's photo dimensions so the resolution filter + quality dots know the short
 // side of every photo, not just the ones on the current page. Cached in grQual; re-renders as results land.
@@ -7954,6 +7956,10 @@ function grToggleRated(){ grRatedOnly=!grRatedOnly; try{ localStorage.setItem("b
   grApplyTagDeletes(); grDel=new Set(); grArmed=""; grMode=""; grTagPick=grPickTagSet();
   if(!grTagPick){ grRenderGear(); return toast(grRatedOnly?"No fully-rated people with photos":"No people with photos"); }
   if(grRes!=="any") grEnsureQuality(); grKeepGearOpen(); }
+function grToggleExclEnough(){ grExclEnough=!grExclEnough; try{ localStorage.setItem("bench_gr_exclenough",grExclEnough?"1":"0"); }catch(e){}
+  grApplyTagDeletes(); grDel=new Set(); grArmed=""; grMode=""; grTagPick=grPickTagSet();
+  if(!grTagPick){ grRenderGear(); return toast("No eligible people to tag"); }
+  if(grRes!=="any") grEnsureQuality(); grKeepGearOpen(); }
 function ptHasUntagged(a){ return (a.photoURLs||[]).filter(Boolean).some(u=>!photoTagsOf(a,u).length); }   // ≥1 photo with no tag yet
 function ptTaggedPct(a){ const urls=(a.photoURLs||[]).filter(Boolean); if(!urls.length) return 1;   // share of a person's photos that carry ≥1 tag (0 = nothing tagged yet)
   return urls.filter(u=>photoTagsOf(a,u).length).length/urls.length; }
@@ -7962,6 +7968,7 @@ function ptTaggedPct(a){ const urls=(a.photoURLs||[]).filter(Boolean); if(!urls.
 // still have an untagged photo are eligible (the board never shows already-tagged ones).
 function grPickTagSet(){ let pool=actors().filter(a=>(a.photoURLs||[]).filter(Boolean).length);
   if(grRatedOnly){ const r=pool.filter(a=>isFullyRated(a.id)); if(r.length) pool=r; }
+  if(grExclEnough){ const e=pool.filter(a=>!hasEnoughTags(a)); if(e.length) pool=e; }   // skip people who already have enough tags
   if(!pool.length) return null;
   const withUntag=pool.filter(ptHasUntagged); if(withUntag.length) pool=withUntag;   // don't serve people with nothing left to tag
   const scored=pool.map(a=>({id:a.id, pct:ptTaggedPct(a)})), lo=Math.min(...scored.map(s=>s.pct));
