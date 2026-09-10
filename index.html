@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "413";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "414";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -7971,8 +7971,8 @@ function grPickTagSet(){ let pool=actors().filter(a=>(a.photoURLs||[]).filter(Bo
   if(grExclEnough){ const e=pool.filter(a=>!hasEnoughTags(a)); if(e.length) pool=e; }   // skip people who already have enough tags
   if(!pool.length) return null;
   const withUntag=pool.filter(ptHasUntagged); if(withUntag.length) pool=withUntag;   // don't serve people with nothing left to tag
-  const scored=pool.map(a=>({id:a.id, pct:ptTaggedPct(a)})), lo=Math.min(...scored.map(s=>s.pct));
-  const src=scored.filter(s=>s.pct<=lo+1e-9);   // everyone tied at the lowest tagged-percentage
+  const scored=pool.map(a=>({id:a.id, pct:ptTaggedPct(a)})).sort((x,y)=>x.pct-y.pct);
+  const src=scored.slice(0, Math.max(1, Math.ceil(scored.length/2)));   // bottom HALF by tagged-% → random among them (variety, not always the single lowest)
   return src[Math.floor(Math.random()*src.length)].id; }
 // TAG mode photos for the current person: resolution-filtered, and NEVER already-tagged (tag board only).
 function grTagAllUrls(){ const a=grTarget(); if(!a) return [];
