@@ -1120,6 +1120,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
           <div class="fmenu ovfmenu" id="fmenu_series__ovf">
             <div class="searchwrap ovf-search"><input id="seriesSearch" data-noclear="1" placeholder="Search…" oninput="onSeriesSearch()"><button class="sx" title="Clear" onclick="$('seriesSearch').value='';onSeriesSearch()">✕</button></div>
             <div class="ovf-addwrap" id="ovfadd_series"></div>
+            <div class="ovf-sort"><span class="small muted">Sort</span><select id="seriesSortKey" onchange="setSeriesSortKey(this.value)"></select><button class="sm" id="seriesSortDir" onclick="toggleSeriesSortDir()" title="Sort direction"></button></div>
             <button class="ovf-item" id="seriesClear" style="display:none" onclick="clearFilters('series')">✕ Clear filters</button>
             <button class="ovf-item" onclick="openBulkEdit('series')">🏷️ Bulk edit</button>
             <button class="ovf-item" onclick="copyFilteredSeriesNames()">📋 Copy names</button>
@@ -1145,8 +1146,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
   <div id="challengeView">
     <div class="card">
       <div class="row" style="align-items:center;gap:12px"><select id="chSkill" onchange="challengeSetSkill()" style="flex:1;min-width:0"></select>
-        <label style="margin:0;flex:none;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="switch" id="chSmartBox" onchange="toggleChSmart(this.checked)"> <span class="small">Smart</span></label>
-        <label style="margin:0;flex:none;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="switch" id="chShowRatingBox" onchange="toggleChShowRating(this.checked)"> <span class="small">Rating</span></label></div>
+        <label style="margin:0;flex:none;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="switch" id="chSmartBox" onchange="toggleChSmart(this.checked)"> <span class="small">Smart</span></label></div>
       <div id="chBody" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "414";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "415";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2113,6 +2113,8 @@ function evSeriesName(e){ const ser=eventSeries(e); return ser&&!ser.deleted?(se
 function evStudioName(e){ const st=eventStudio(e); return st&&!st.deleted?(st.name||""):""; }
 function studioSeries(studioId){ return allSeries().filter(s=>s.studioId===studioId); }   // series under a studio
 function seriesActivities(seriesId){ return events().filter(e=>e.seriesId===seriesId); }
+// total "seen this week" marks across all of a series' activities (sum of each activity's seen-week entries)
+function seriesSeenCount(seriesId){ return seriesActivities(seriesId).reduce((n,e)=>n+seenWeeksOf(e).length,0); }
 function studioActivities(studioId){ const ids=new Set(studioSeries(studioId).map(s=>s.id)); return events().filter(e=>ids.has(e.seriesId)); }
 // distinct people across a set of activities (for studio/series profiles)
 function peopleAcross(evs){ const ids=new Set(); evs.forEach(e=>evIds(e).forEach(id=>ids.add(id))); return [...ids].map(actorById).filter(Boolean); }
@@ -3938,8 +3940,7 @@ async function addPicFromClipboard(){
 }
 function toggleProfilePic(i){ const a=curPhotoDraft; const u=a.photoURLs[i]; if(!u) return; a.profilePics=a.profilePics||[];
   const j=a.profilePics.indexOf(u); if(j>=0) a.profilePics.splice(j,1); else a.profilePics.push(u);
-  const star=new Set(a.profilePics); a.photoURLs.sort((x,y)=>((star.has(y)?1:0)-(star.has(x)?1:0)));   // profile pics move to the front
-  refreshPhotoStrip(); autoSaveActor(); }
+  refreshPhotoStrip(); autoSaveActor(); }   // favorites keep their position in the strip (no reorder)
 function removePhoto(i){ const u=curPhotoDraft.photoURLs[i]; curPhotoDraft.photoURLs.splice(i,1);
   if(curPhotoDraft.profilePics){ const j=curPhotoDraft.profilePics.indexOf(u); if(j>=0) curPhotoDraft.profilePics.splice(j,1); }
   refreshPhotoStrip(); autoSaveDraft(); }
@@ -4367,7 +4368,13 @@ function toggleChShowRating(on){ chShowRating=on; localStorage.setItem("bench_ch
 // don't let a background sync re-render the Compare view out from under an in-progress comparison (like grTagBusy for the tag board)
 function chBusy(){ const a=document.querySelector(".tab.active"); return !!a && a.id==="tab-challenge" && chSub==="challenge"; }
 function history(){ return (DB.history||[]).filter(h=>!h.deleted); }
-function chRatedPeople(skillKey){ return actors().filter(a=>actorThumb(a) && ratingsOf(a.id).some(r=>r.skillKey===skillKey)); }   // need a photo to appear in challenges
+function skillIsPhysical(key){ const sk=(DB.settings.skills||[]).find(s=>s.key===key); return !!(sk&&sk.category==="physical"); }
+// Duel/Challenge (physical skills): a photo MUST carry that skill's tag to be shown — no fallback to untagged photos.
+function skillTaggedPhotos(a,skillKey){ const urls=(a&&a.photoURLs||[]).filter(Boolean);
+  if(!skillKey||!a) return urls; return urls.filter(u=>photoTagsOf(a,u).indexOf(skillKey)>=0); }
+// eligible for the Duel on this skill: rated + has a photo, and for physical skills also ENOUGH photos tagged with it
+function chRatedPeople(skillKey){ const phys=skillIsPhysical(skillKey), need=enoughTagsN();
+  return actors().filter(a=>actorThumb(a) && ratingsOf(a.id).some(r=>r.skillKey===skillKey) && (!phys || attrTagCountOf(a,skillKey)>=need)); }
 function chEligibleSkills(){ return (DB.settings.skills||[]).filter(s=>chRatedPeople(s.key).length>=2); }
 function toggleChSmart(on){ chSmart=on; localStorage.setItem("bench_chsmart",on?"1":"0"); challengeRandom(); }
 let chSub=subGet("bench_ch_sub",["challenge","blind","discover","phototag"],"challenge");   // remembered across sessions
@@ -4406,27 +4413,24 @@ function pickChPair(){ chValue=0; const pool=chRatedPeople(chSkillKey); if(pool.
   let i=Math.floor(Math.random()*pool.length), j=Math.floor(Math.random()*pool.length); while(j===i) j=Math.floor(Math.random()*pool.length);
   chPair=[pool[i].id,pool[j].id]; }
 function challengeRandom(){ pickChPair(); renderChallengeBody(); }
-function chOnSlider(v){ chValue=Number(v); const A=actorById(chPair[0]),B=actorById(chPair[1]);
-  $("chSliderLbl").textContent = chValue===0?"equal":(chValue<0?`◀ ${A.name} +${(-chValue).toFixed(1)}`:`${B.name} +${chValue.toFixed(1)} ▶`); }
+function chOnSlider(v){ chValue=Number(v); }   // slider carries no text label
 function renderChallengeBody(){
   const body=$("chBody"); if(!chSkillKey){ body.innerHTML='<div class="small muted">Rate at least 2 people on a skill (Rate button in People) to start.</div>'; return; }
   if(!chPair[0]||!chPair[1]){ body.innerHTML='<div class="small muted">Not enough rated people for this skill.</div>'; return; }
   const A=actorById(chPair[0]), B=actorById(chPair[1]);
-  // one column per person, mirroring the Rate → Compare layout: name on top, two stacked photos, rating badge on the first.
-  // each cell is a rotThumb: tap left/right flips photos, tap middle opens the viewer (filtered to this skill's tag).
-  const col=(p)=>{ const r=ratingOf(p.id,chSkillKey), rv=r?r.value.toFixed(2):"—", urls=(p.photoURLs||[]).filter(Boolean);
-    const pics=twoPhotosForSkill(p,chSkillKey);
-    const cell=(u,badge)=>{ const start=Math.max(0,urls.indexOf(u));
+  // one column per person: NAME on top, then two stacked photos. No rating badge on the thumbnails, and only
+  // photos tagged with this skill are shown. Each cell is a rotThumb: tap left/right flips photos, tap middle opens the viewer.
+  const col=(p)=>{ const urls=skillTaggedPhotos(p,chSkillKey);
+    const pics=twoPhotos(urls);
+    const cell=(u)=>{ const start=Math.max(0,urls.indexOf(u));
       const thumb=urls.length?rotThumb(urls,{start,name:p.name,personId:p.id,skillKey:chSkillKey,style:"width:100%;height:100%;border-radius:12px"}):'<div class="rc-ph">👤</div>';
-      return `<div class="rc-cell">${thumb}${badge&&chShowRating?`<div class="rc-badge">${rv}${isProvisional(r)?'<span class="provq">?</span>':""}</div>`:""}</div>`; };
-    const cells = pics.length?pics.map((u,k)=>cell(u,k===0)).join(""):cell(urls[0]||null,true);
-    return `<div class="rc-col ch-col">${cells}</div>`; };   // name shown only near the slider below
-  const sliderLbl = chValue===0?"equal":(chValue<0?`◀ ${esc(A.name)} +${(-chValue).toFixed(1)}`:`${esc(B.name)} +${chValue.toFixed(1)} ▶`);
+      return `<div class="rc-cell">${thumb}</div>`; };
+    const cells = pics.length?pics.map(u=>cell(u)).join(""):cell(urls[0]||null);
+    return `<div class="rc-col ch-col"><div class="ch-name">${esc(p.name)}</div>${cells}</div>`; };
   body.innerHTML=`
     <div class="rc-grid ch-grid">${col(A)}${col(B)}</div>
     <div class="rc-ctrls" style="margin-top:12px">
       <input id="chSlider" type="range" min="-1" max="1" step="0.1" value="${chValue}" oninput="chOnSlider(this.value)">
-      <div class="spread"><span class="small muted">◀ ${esc(A.name)}</span><span class="small" id="chSliderLbl">${sliderLbl}</span><span class="small muted">${esc(B.name)} ▶</span></div>
       <div style="margin-top:14px;display:flex;gap:8px"><button class="primary" style="flex:1" onclick="challengeSubmit()">Submit</button><button class="sm" style="flex:0 0 auto" onclick="challengeRandom()">⏭ Skip</button></div></div>`;
 }
 function eloUpdate(ra,rb,v){ const K=0.5,SCALE=4; const ea=1/(1+Math.pow(10,(rb-ra)/SCALE)), eb=1-ea, sa=(1-v)/2, sb=(1+v)/2;
@@ -4865,8 +4869,21 @@ function renderStudios(page){
     return `<div class="vcard" onclick="openStudio('${s.id}')"><div class="vthumb fit">${thumbImg(t,"🏢")}${allPhotosBadge(acts)}</div><div class="vbody"><div class="nm">${esc(s.name||"(unnamed)")}</div><div class="sub">${studioSeries(s.id).length} series · ${acts.length} activities</div></div></div>`; }).join("") : '<div class="muted">No studios match.</div>';
   buildPager("studioPager",page,pages,"renderStudios");
 }
+// ---- Series sort (under the Series filter) ----
+const SERIES_SORTS=[{k:"name",l:"Name",num:false},{k:"seen",l:"👁 Seen this week",num:true},{k:"activities",l:"# Activities",num:true}];
+let seriesSort=loadSort("bench_sort_series",SERIES_SORTS.map(s=>s.k),{key:"name",dir:1});   // dir: 1 = ascending, -1 = descending; restored across sessions
+function serSortVal(s,key){ if(key==="name") return s.name||"";
+  if(key==="seen") return seriesSeenCount(s.id);
+  if(key==="activities") return seriesActivities(s.id).length;
+  return 0; }
+function setSeriesSortKey(k){ seriesSort.key=k; saveSort("bench_sort_series",seriesSort); renderSeriesList(1); }
+function toggleSeriesSortDir(){ seriesSort.dir*=-1; saveSort("bench_sort_series",seriesSort); renderSeriesList(_seriesPage); }
+function renderSeriesSort(){ const sk=$("seriesSortKey"); if(sk) sk.innerHTML=SERIES_SORTS.map(s=>`<option value="${s.k}"${s.k===seriesSort.key?" selected":""}>${esc(s.l)}</option>`).join("");
+  const db=$("seriesSortDir"); if(db){ db.textContent=seriesSort.dir<0?"↓ Desc":"↑ Asc"; db.title="Increasing / decreasing"; } }
 function renderSeriesList(page){
-  let list=currentFilteredSeries().sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const col=SERIES_SORTS.find(c=>c.k===seriesSort.key)||SERIES_SORTS[0];
+  let list=currentFilteredSeries().sort((a,b)=>sortCmp(serSortVal(a,seriesSort.key),serSortVal(b,seriesSort.key),col.num,seriesSort.dir));
+  renderSeriesSort();
   if($("seriesCount")) $("seriesCount").textContent=String(list.length);
   updateFilterClear("series","seriesClear");
   const per=12, pages=Math.max(1,Math.ceil(list.length/per)); page=Math.min(Math.max(1,page||1),pages); _seriesPage=page;
@@ -4963,6 +4980,8 @@ function openSeries(id){ bumpThumbEpoch(); const se=seriesById(id); if(!se||se.d
   const yearsActive=yrs.length?(yMin===yMax?`${yMin}`:`${yMin} - ${yMax}`):"";
   const avgAge=avgActivityAgeStrAcross(acts);
   const avgPpl=acts.length?(acts.reduce((s,e)=>s+evIds(e).length,0)/acts.length).toFixed(2):"";
+  const seenCount=seriesSeenCount(id);                 // how many times this series' activities were marked "seen this week"
+  const evTags=tagsFrom(acts);                          // union of tags across the series' activities
   $("seriesViewBody").innerHTML=`
     <div class="pv-head">
       <h2 class="pv-name"><span>${esc(se.name||"(unnamed series)")}</span></h2>
@@ -4981,6 +5000,7 @@ function openSeries(id){ bumpThumbEpoch(); const se=seriesById(id); if(!se||se.d
           <div><span class="k">People</span><span class="v">${ppl.length}</span></div>
           ${avgAge?`<div><span class="k">Avg age</span><span class="v">${esc(avgAge)}</span></div>`:""}
           ${avgPpl?`<div><span class="k">Avg people</span><span class="v">${avgPpl}</span></div>`:""}
+          <div><span class="k">👁 Seen</span><span class="v">${seenCount}</span></div>
         </div>
         ${(se.tags||[]).length?`<div style="margin-top:8px">${se.tags.map(tagChipHTML).join("")}</div>`:""}
       </div>
@@ -4990,6 +5010,7 @@ function openSeries(id){ bumpThumbEpoch(); const se=seriesById(id); if(!se||se.d
       const pn=rids.length?esc(actorName(rids[0]))+(rids.length>1?` <span class="muted">+${rids.length-1}</span>`:""):"";
       const ds=evDateStr(e), aa=avgActivityAgeStr(e);
       return `<div class="vcard" onclick="openActivity('${e.id}')"${evTintStyle(e)}><div class="vthumb">${evThumbInner(e)}</div><div class="vbody"><div class="nm">${esc(e.eventName||"(untitled)")}</div>${ds?`<div class="sub one">${esc(ds)}</div>`:""}${pn?`<div class="sub one">👤 ${pn}</div>`:""}${aa?`<div class="sub one">${esc(aa)}</div>`:""}</div></div>`; }).join("")}</div>`:'<div class="small muted">No activities.</div>'}
+    ${evTags.length?`<h3 style="margin-top:16px">Activity tags (${evTags.length})</h3><div>${evTags.map(tagChipHTML).join("")}</div>`:""}
     <h3 style="margin-top:16px">People (${ppl.length})</h3>${peopleStripHTML(ppl)}
     ${linksReadHTML(se.links)}${photoGridHTML(se,"openSeriesPhotos",id)}
     <div class="closebar"><button class="sm" onclick="closeOverlay('seriesViewOverlay')">✕ Close</button></div>`;
