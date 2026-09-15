@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "415";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "416";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2215,11 +2215,19 @@ function cleanDateStr(s){ s=String(s==null?"":s).trim(); if(!s) return null;
 // INVARIANT: auto-repair any Sheet-coerced dates the moment they arrive (runs on every pull), so a fresh
 // pull never leaves the app showing "Mon Apr 26 2004 …" — the user no longer has to click the repair button.
 // Only records that actually carried a corrupted value get touched + bumped, so healed rows push the fix back.
+// A value the Sheet produced by date-typing a cell comes back as an ISO datetime ("2004-04-26T00:00:00.000Z").
+// Stripping it to "2004-04-26" and pushing it back just gets re-coerced on the next pull, so bumping updatedAt for
+// it would keep the row pinned to the top of "recently updated" forever. So: heal those IN MEMORY for display but
+// DON'T treat them as a local edit. Only genuinely repairable corruption (locale strings, slashes, …) gets a
+// one-time updatedAt bump so a plain-text column keeps the fix.
+function _sheetTypedDate(v){ return /^\d{4}-\d{2}-\d{2}T/.test(String(v==null?"":v).trim()); }
 function healCorruptDates(){ let changed=false; const t=now();
-  (DB.actors||[]).forEach(a=>{ const to=cleanDateStr(a.dob); if(to){ a.dob=to; if(!a.yearOfBirth){ const y=Number(to.slice(0,4)); if(y) a.yearOfBirth=y; } a.updatedAt=t; changed=true; } });
-  (DB.events||[]).forEach(e=>{ let hit=false; const to=cleanDateStr(e.date); if(to){ e.date=to; if(!e.year){ const y=Number(to.slice(0,4)); if(y) e.year=y; } hit=true; }
-    ["seenWeek","seenWeeks"].forEach(k=>{ if(Array.isArray(e[k])) e[k].forEach((w,i)=>{ const tw=cleanDateStr(w); if(tw){ e[k][i]=tw; hit=true; } }); });
-    if(hit){ e.updatedAt=t; changed=true; } });
+  (DB.actors||[]).forEach(a=>{ const raw=a.dob, to=cleanDateStr(raw); if(to){ a.dob=to; if(!a.yearOfBirth){ const y=Number(to.slice(0,4)); if(y) a.yearOfBirth=y; }
+    if(!_sheetTypedDate(raw)){ a.updatedAt=t; changed=true; } } });
+  (DB.events||[]).forEach(e=>{ let push=false; const raw=e.date, to=cleanDateStr(raw);
+    if(to){ e.date=to; if(!e.year){ const y=Number(to.slice(0,4)); if(y) e.year=y; } if(!_sheetTypedDate(raw)) push=true; }
+    ["seenWeek","seenWeeks"].forEach(k=>{ if(Array.isArray(e[k])) e[k].forEach((w,i)=>{ const raww=e[k][i], tw=cleanDateStr(raww); if(tw){ e[k][i]=tw; if(!_sheetTypedDate(raww)) push=true; } }); });
+    if(push){ e.updatedAt=t; changed=true; } });
   if(changed) DB.rev=Math.max(DB.rev||0,t);
   return changed; }
 // precise age of a person at an activity: "23 yo and 234 days" when BOTH dates are day-precise, else the
