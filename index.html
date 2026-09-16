@@ -1564,7 +1564,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "416";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "417";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -2212,24 +2212,19 @@ function cleanDateStr(s){ s=String(s==null?"":s).trim(); if(!s) return null;
   if(m){ const mo=MON[m[1].toLowerCase()]; if(mo) return `${m[3]}-${p2(mo)}-${p2(+m[2])}`; }
   const d=new Date(s); if(!isNaN(d.getTime())) return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
   return null; }                                                            // couldn't parse → leave it untouched
-// INVARIANT: auto-repair any Sheet-coerced dates the moment they arrive (runs on every pull), so a fresh
-// pull never leaves the app showing "Mon Apr 26 2004 …" — the user no longer has to click the repair button.
-// Only records that actually carried a corrupted value get touched + bumped, so healed rows push the fix back.
-// A value the Sheet produced by date-typing a cell comes back as an ISO datetime ("2004-04-26T00:00:00.000Z").
-// Stripping it to "2004-04-26" and pushing it back just gets re-coerced on the next pull, so bumping updatedAt for
-// it would keep the row pinned to the top of "recently updated" forever. So: heal those IN MEMORY for display but
-// DON'T treat them as a local edit. Only genuinely repairable corruption (locale strings, slashes, …) gets a
-// one-time updatedAt bump so a plain-text column keeps the fix.
-function _sheetTypedDate(v){ return /^\d{4}-\d{2}-\d{2}T/.test(String(v==null?"":v).trim()); }
-function healCorruptDates(){ let changed=false; const t=now();
-  (DB.actors||[]).forEach(a=>{ const raw=a.dob, to=cleanDateStr(raw); if(to){ a.dob=to; if(!a.yearOfBirth){ const y=Number(to.slice(0,4)); if(y) a.yearOfBirth=y; }
-    if(!_sheetTypedDate(raw)){ a.updatedAt=t; changed=true; } } });
-  (DB.events||[]).forEach(e=>{ let push=false; const raw=e.date, to=cleanDateStr(raw);
-    if(to){ e.date=to; if(!e.year){ const y=Number(to.slice(0,4)); if(y) e.year=y; } if(!_sheetTypedDate(raw)) push=true; }
-    ["seenWeek","seenWeeks"].forEach(k=>{ if(Array.isArray(e[k])) e[k].forEach((w,i)=>{ const raww=e[k][i], tw=cleanDateStr(raww); if(tw){ e[k][i]=tw; if(!_sheetTypedDate(raww)) push=true; } }); });
-    if(push){ e.updatedAt=t; changed=true; } });
-  if(changed) DB.rev=Math.max(DB.rev||0,t);
-  return changed; }
+// INVARIANT: normalize any Sheet-coerced date for DISPLAY on every pull, so the app never shows a raw
+// "Mon Apr 26 2004 …" or an ISO datetime. This is a display repair ONLY — it must never author updatedAt/DB.rev.
+// A day-precise date lives in a date-typed Sheet column, so it round-trips back as an ISO datetime
+// ("2004-04-26T00:00:00.000Z") on EVERY pull. If we bumped updatedAt to "fix" it, colDirty would push the row,
+// the Sheet would re-coerce it, and it would churn to the top of "recently updated" forever (the "5 events I
+// never touched keep appearing" bug). Cleaning in memory — and persisting that clean form locally via the
+// returned changed flag — is enough. The user-initiated "Repair corrupted dates" button (repairCorruptDates) is
+// the place that writes a repair back WITH a real edit stamp, when the user explicitly asks for it.
+function healCorruptDates(){ let changed=false;
+  (DB.actors||[]).forEach(a=>{ const to=cleanDateStr(a.dob); if(to){ a.dob=to; if(!a.yearOfBirth){ const y=Number(to.slice(0,4)); if(y) a.yearOfBirth=y; } changed=true; } });
+  (DB.events||[]).forEach(e=>{ const to=cleanDateStr(e.date); if(to){ e.date=to; if(!e.year){ const y=Number(to.slice(0,4)); if(y) e.year=y; } changed=true; }
+    ["seenWeek","seenWeeks"].forEach(k=>{ if(Array.isArray(e[k])) e[k].forEach((w,i)=>{ const tw=cleanDateStr(w); if(tw){ e[k][i]=tw; changed=true; } }); }); });
+  return changed; }   // cleaned for display + local persistence, but NO updatedAt/DB.rev bump → never pushed, never churns
 // precise age of a person at an activity: "23 yo and 234 days" when BOTH dates are day-precise, else the
 // calendar-year age "23 yo", else null when no birth year is known at all.
 function agePreciseAt(a,e){
