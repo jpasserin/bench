@@ -1316,6 +1316,13 @@ button.boolcap{cursor:pointer;font-family:inherit}
   </div>
 
   <div class="card" data-cat="data">
+    <h3>Churn recorder</h3>
+    <div class="small muted" style="margin:0 0 8px">Diagnostic. While this is on, every sync quietly records which field re-stamped a record (and by which code path) — field names and diff shapes only, never your private values. Sync normally; when a record climbs “recently updated” without you touching it, open the log here and it names the culprit. Skipped in Private mode.</div>
+    <div class="databtns"><button onclick="showChurnLog()">📿 Show log</button><button class="danger" onclick="clearChurnLog()">🗑 Clear log</button></div>
+    <div id="churnLogOut" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" data-cat="data">
     <h3>Find duplicate people</h3>
     <div class="databtns"><button onclick="scanDuplicatePeople()">🔍 Scan for duplicates</button></div>
     <div id="dupResults" style="margin-top:10px"></div>
@@ -1571,7 +1578,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "419";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "420";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -1970,7 +1977,7 @@ function runMigrations(){
   if((Number(DB.settings.schemaVersion)||0)!==SCHEMA_VERSION){ DB.settings.schemaVersion=SCHEMA_VERSION; changed=true; }
   return changed;
 }
-function runInvariants(){ let changed=false; for(const fn of INVARIANTS){ try{ if(fn()) changed=true; }catch(e){ console.warn("invariant "+(fn.name||"?")+" failed:",e); } } return changed; }
+function runInvariants(){ let changed=false; for(const fn of INVARIANTS){ const _up=_churnSnapUp(); try{ if(fn()) changed=true; }catch(e){ console.warn("invariant "+(fn.name||"?")+" failed:",e); } _churnDiffUp(_up,"invariant:"+(fn.name||"?")); } return changed; }
 
 async function load(){
   migrateLegacyKeys();
@@ -2459,6 +2466,22 @@ function mergeMeta(a,b){ a=a||{}; b=b||{};
   return {del,add,fts}; }
 function _metaEmpty(m){ return !m || (!Object.keys(m.del||{}).length && !Object.keys(m.add||{}).length && !Object.keys(m.fts||{}).length); }
 function _metaNorm(m){ return _metaEmpty(m)?null:{del:m.del||{},add:m.add||{},fts:m.fts||{}}; }
+// ---- churn recorder (diagnostic) — logs to localStorage which field re-stamps a record during a REAL sync ----
+// Read-only w.r.t. sync behaviour; SKIPPED in Private mode (so it never records the obfuscated clone); capped;
+// cleared from Settings. Records field NAMES and diff SHAPES only (types / string-lengths / item counts), never
+// the private values — so the log is safe to read aloud or paste. Answers, once and for all, WHY a record climbs
+// "recently updated" untouched: which code path (reconcile / stamp / which invariant) and which field bumped it.
+let _churnRec=(()=>{ try{ return JSON.parse(localStorage.getItem("bench_churnlog")||"[]"); }catch(e){ return []; } })();
+function _churnSave(){ try{ _churnRec=_churnRec.slice(-600); localStorage.setItem("bench_churnlog",JSON.stringify(_churnRec)); }catch(e){} }
+function _churnShape(v){ if(v===undefined) return "∅"; if(v===null) return "null"; const t=typeof v;
+  if(t==="string") return "str("+v.length+")"; if(t==="number") return "num:"+v; if(t==="boolean") return "bool:"+v;
+  try{ return t+"("+JSON.stringify(v).length+")"; }catch(e){ return t; } }
+function _churnLog(id,src,field,detail){ if(typeof PRIVATE!=="undefined"&&PRIVATE) return;
+  _churnRec.push({t:Date.now(),id:id||"?",src:src,field:field||"",detail:detail||""}); _churnSave(); }
+const _CHURN_COLLS=["actors","ratings","events","rewards","studios","series","teams","collections"];
+function _churnSnapUp(){ const m={}; _CHURN_COLLS.forEach(c=>(DB[c]||[]).forEach(r=>{ if(r&&r.id!=null) m[r.id]=r.updatedAt||0; })); return m; }
+function _churnDiffUp(before,src){ if(typeof PRIVATE!=="undefined"&&PRIVATE) return;
+  _CHURN_COLLS.forEach(c=>(DB[c]||[]).forEach(r=>{ if(r&&r.id!=null){ const b=before[r.id]||0; if((r.updatedAt||0)>b) _churnLog(r.id,src,"","updatedAt "+b+"→"+(r.updatedAt||0)); } })); }
 // Reconcile hook: start from the newer record, then (1) for each scalar, take whichever side stamped it more
 // recently (tie → winner); (2) union every additive list/photolist, but DROP any unioned item a tombstone says
 // was deleted more recently than it was (re)added; (3) union tagmap/map fields; (4) carry the merged syncMeta.
@@ -2472,7 +2495,7 @@ function reconcileWith(winner,loser,spec){
   [winner,loser].forEach(r=>{ for(const k in r){ if(META_INTERNAL.has(k)||additive.has(k)) continue;
     const v=r[k]; if(v===null||typeof v==="object") continue; scalarKeys.add(k); } });
   scalarKeys.forEach(k=>{ const wf=(wMeta.fts&&wMeta.fts[k])||0, lf=(lMeta.fts&&lMeta.fts[k])||0;
-    if(lf>wf && loser[k]!==winner[k]){ base[k]=loser[k]; changed=true; } });
+    if(lf>wf && loser[k]!==winner[k]){ base[k]=loser[k]; changed=true; _churnLog(winner.id,"reconcile:scalar",k,_churnShape(winner[k])+"→"+_churnShape(loser[k])); } });
   // (2)/(3) additive fields
   spec.fields.forEach(fd=>{ const cv=winner[fd.f], iv=loser[fd.f];
     if(fd.kind==="list"||fd.kind==="photolist"){
@@ -2482,13 +2505,15 @@ function reconcileWith(winner,loser,spec){
         const addTs=(meta.add&&meta.add[key])||0;      // LWW-Set: present iff a re-add is newer than the deletion.
         return addTs>delTs; });                        // a stale peer merely holding the item has no add stamp → dropped
       const wKeys=new Set((cv||[]).map(_canon));
-      if(kept.length!==wKeys.size || kept.some(it=>!wKeys.has(_canon(it)))){ base[fd.f]=kept; changed=true; }
+      if(kept.length!==wKeys.size || kept.some(it=>!wKeys.has(_canon(it)))){ base[fd.f]=kept; changed=true;
+        const rset=new Set((iv||[]).map(_canon)), onlyR=[...rset].filter(x=>!wKeys.has(x)), onlyL=[...wKeys].filter(x=>!rset.has(x));
+        _churnLog(winner.id,"reconcile:list",fd.f,"local"+wKeys.size+"/remote"+rset.size+"/kept"+kept.length+" onlyR-len["+onlyR.map(x=>x.length).join(",")+"] onlyL-len["+onlyL.map(x=>x.length).join(",")+"]"); }
     } else if(fd.kind==="tagmap"){ const bmap=cv||{}, m2=Object.assign({},bmap); let add=false;
       for(const url in (iv||{})){ const u=unionArr(bmap[url]||[],iv[url]||[]); if(u.added){ m2[url]=u.merged; add=true; } }
-      if(add){ base[fd.f]=m2; changed=true; }
-    } else if(fd.kind==="map"){ const bmap=cv||{}, m2=Object.assign({},bmap); let add=false;
-      for(const k in (iv||{})){ if(!(k in bmap)){ m2[k]=iv[k]; add=true; } }
-      if(add){ base[fd.f]=m2; changed=true; } } });
+      if(add){ base[fd.f]=m2; changed=true; _churnLog(winner.id,"reconcile:tagmap",fd.f,"keys"+Object.keys(m2).length); }
+    } else if(fd.kind==="map"){ const bmap=cv||{}, m2=Object.assign({},bmap); let add=false, addedKeys=[];
+      for(const k in (iv||{})){ if(!(k in bmap)){ m2[k]=iv[k]; add=true; addedKeys.push(k); } }
+      if(add){ base[fd.f]=m2; changed=true; _churnLog(winner.id,"reconcile:map",fd.f,"+keys["+addedKeys.join(",")+"]"); } } });
   const mNorm=_metaNorm(meta), metaDiffers=JSON.stringify(mNorm)!==JSON.stringify(_metaNorm(winner.syncMeta));
   if(!changed && !metaDiffers) return winner;
   if(mNorm) base.syncMeta=mNorm; else delete base.syncMeta;
@@ -2524,12 +2549,12 @@ function stampSyncMeta(){
       if(!b){ base[r.id]=cur; return; }   // brand-new record: baseline it now so future edits/deletes diff against it (union covers its initial adds)
       const del=Object.assign({}, (r.syncMeta&&r.syncMeta.del)||{}), add=Object.assign({}, (r.syncMeta&&r.syncMeta.add)||{}), fts=Object.assign({}, (r.syncMeta&&r.syncMeta.fts)||{});
       let dirty=false;
-      for(const k in cur.sc){ if(cur.sc[k]!==b.sc[k]){ fts[k]=t; dirty=true; } }        // scalar changed
-      for(const k in b.sc){ if(!(k in cur.sc)){ fts[k]=t; dirty=true; } }               // scalar cleared
+      for(const k in cur.sc){ if(cur.sc[k]!==b.sc[k]){ fts[k]=t; dirty=true; _churnLog(r.id,"stamp:scalar",k,_churnShape(b.sc[k])+"→"+_churnShape(cur.sc[k])); } }        // scalar changed
+      for(const k in b.sc){ if(!(k in cur.sc)){ fts[k]=t; dirty=true; _churnLog(r.id,"stamp:clear",k,_churnShape(b.sc[k])+"→∅"); } }               // scalar cleared
       spec.fields.forEach(fd=>{ if(fd.kind!=="list"&&fd.kind!=="photolist") return;
         const before=new Set(b.li[fd.f]||[]), after=new Set(cur.li[fd.f]||[]);
-        (b.li[fd.f]||[]).forEach(k=>{ if(!after.has(k)){ del[fd.f+META_SEP+k]=t; dirty=true; } });    // item removed → tombstone
-        (cur.li[fd.f]||[]).forEach(k=>{ if(!before.has(k)){ add[fd.f+META_SEP+k]=t; dirty=true; } }); }); // item (re)appeared → add stamp (beats any tombstone)
+        (b.li[fd.f]||[]).forEach(k=>{ if(!after.has(k)){ del[fd.f+META_SEP+k]=t; dirty=true; _churnLog(r.id,"stamp:list-del",fd.f,"itemlen"+k.length); } });    // item removed → tombstone
+        (cur.li[fd.f]||[]).forEach(k=>{ if(!before.has(k)){ add[fd.f+META_SEP+k]=t; dirty=true; _churnLog(r.id,"stamp:list-add",fd.f,"itemlen"+k.length); } }); }); // item (re)appeared → add stamp (beats any tombstone)
       base[r.id]=cur;   // advance baseline for this record → the next stamp diffs incrementally (no re-stamp / no per-save churn)
       if(dirty){ const m=_metaNorm({del,add,fts}); if(m) r.syncMeta=m; else delete r.syncMeta;
         r.updatedAt=Math.max(r.updatedAt||0,t); DB.rev=Math.max(DB.rev||0,t); } }); });
@@ -5124,6 +5149,23 @@ function _normList(f,arr){ const seen=new Set(), out=[];
     else { if(v==null) return; if(typeof v==="string"){ v=v.trim(); if(!v) return; } }   // drop blank/whitespace-only strings
     const k=_canon(v); if(seen.has(k)) return; seen.add(k); out.push(v); });
   return out; }
+// ---- churn recorder viewer: group the raw log by record → show which field/path keeps re-stamping it ----
+function _churnName(id){ for(const c of _CHURN_COLLS){ const r=(DB[c]||[]).find(x=>x&&x.id===id); if(r){
+    const nm=r.eventName||r.name||r.title||r.label; return (nm?nm:id)+" ["+c.replace(/s$/,"")+"]"; } } return id; }
+function showChurnLog(){ const el=$("churnLogOut"); if(!el) return;
+  if(!_churnRec.length){ el.innerHTML='<div class="small muted">No churn recorded yet. Sync a few times (with Private mode OFF); if a record re-stamps itself, it shows up here.</div>'; return; }
+  const byId={}; _churnRec.forEach(e=>{ (byId[e.id]=byId[e.id]||[]).push(e); });
+  const ids=Object.keys(byId).sort((a,b)=>byId[b].length-byId[a].length);
+  let h='<div class="small muted" style="margin-bottom:8px">'+_churnRec.length+' events, '+ids.length+' record(s). Ordered by how often each re-stamped. Field names + diff shapes only — safe to share.</div>';
+  ids.forEach(id=>{ const rows=byId[id]; const sig={};
+    rows.forEach(r=>{ const k=r.src+" · "+(r.field||"(record)"); sig[k]=(sig[k]||0)+1; });
+    h+='<div style="margin:0 0 10px;padding:8px;border:1px solid var(--line,#ccc);border-radius:8px">';
+    h+='<div><b>'+esc(_churnName(id))+'</b> <span class="small muted">'+rows.length+'×</span></div>';
+    Object.keys(sig).sort((a,b)=>sig[b]-sig[a]).forEach(k=>{ h+='<div class="small" style="margin-top:3px">'+esc(k)+' — <b>'+sig[k]+'×</b></div>'; });
+    const last=rows[rows.length-1]; h+='<div class="small muted" style="margin-top:4px">last: '+esc(last.detail||"")+' @ '+new Date(last.t).toLocaleString()+'</div>';
+    h+='</div>'; });
+  el.innerHTML=h; }
+function clearChurnLog(){ _churnRec=[]; try{ localStorage.removeItem("bench_churnlog"); }catch(e){} const el=$("churnLogOut"); if(el) el.innerHTML='<div class="small muted">Log cleared.</div>'; toast&&toast("Churn log cleared"); }
 function rebuildChurningActivities(){
   const el=$("rebuildActOut"); const report=[]; let fixed=0; const t=now();
   DB.events.forEach(e=>{ if(!e||e.deleted) return;
