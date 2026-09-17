@@ -1571,7 +1571,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "418";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "419";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -5105,14 +5105,22 @@ function repairCorruptDates(){ const cand=[];
 // synced baseline; anything that reads back from the Sheet in a different shape than we hold locally flips on each
 // pull → updatedAt gets re-stamped to now() → the row climbs to the top of "recently updated" for no reason.
 // This normalizes each event to exactly the synced schema (drops stray keys, merges the legacy seenWeeks alias,
-// de-dupes/ trims list items, rebuilds links to {label,url,fav}, coerces year/watchlistAt/date), and ONLY bumps +
+// de-dupes/ trims list items (links keep their real shape — fav flag untouched), coerces year/watchlistAt/date), and ONLY bumps +
 // re-pushes the records that actually changed — clean rows are left untouched so nothing else floods the list.
 const _EV_SCHEMA=new Set(["id","actorId","actorIds","studioName","series","seriesId","eventName","year","tags","photoURLs","links","seenWeek","watchlistAt","profilePics","attrs","metaTags","deleted","createdAt","updatedAt","syncMeta","date"]);
 const _EV_ALIAS={ seenWeeks:"seenWeek" };                                   // legacy plural → canonical (merged, then dropped)
 const _EV_LISTS=["actorIds","tags","photoURLs","links","seenWeek","metaTags","profilePics"];
 function _normList(f,arr){ const seen=new Set(), out=[];
   (arr||[]).forEach(v=>{
-    if(f==="links"){ if(!v||typeof v!=="object") return; v={label:String(v.label==null?"":v.label).trim(), url:String(v.url==null?"":v.url).trim(), fav:!!v.fav}; if(!v.url && !v.label) return; }
+    if(f==="links"){ if(!v||typeof v!=="object") return;
+      // Preserve the link's real shape — keys, order, and the fav flag EXACTLY as stored. A link added via the ➕
+      // button legitimately has NO fav key, so forcing {label,url,fav:false} would needlessly rewrite (and re-sync)
+      // almost every activity. Only fix genuine problems here: coerce/trim the url + label strings.
+      const c=Object.assign({},v);
+      c.url = (typeof c.url==="string"?c.url:(c.url==null?"":String(c.url))).trim();
+      if("label" in c) c.label = (typeof c.label==="string"?c.label:(c.label==null?"":String(c.label))).trim();
+      if(!c.url && !(c.label||"")) return;   // drop empty
+      v=c; }
     else { if(v==null) return; if(typeof v==="string"){ v=v.trim(); if(!v) return; } }   // drop blank/whitespace-only strings
     const k=_canon(v); if(seen.has(k)) return; seen.add(k); out.push(v); });
   return out; }
