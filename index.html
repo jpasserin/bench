@@ -1309,6 +1309,13 @@ button.boolcap{cursor:pointer;font-family:inherit}
   </div>
 
   <div class="card" data-cat="data">
+    <h3>Rebuild churning activities</h3>
+    <div class="small muted" style="margin:0 0 8px">Finds activities carrying junk the Google Sheet can't round-trip (stray fields, duplicate or blank list items, un-normalized links/dates) — the usual cause of an activity that keeps re-appearing at the top of “recently updated” without you touching it. Rebuilds only the affected ones and re-syncs a clean copy. Untouched activities are left exactly as they are.</div>
+    <div class="databtns"><button onclick="rebuildChurningActivities()">🧹 Scan &amp; rebuild</button></div>
+    <div id="rebuildActOut" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card" data-cat="data">
     <h3>Find duplicate people</h3>
     <div class="databtns"><button onclick="scanDuplicatePeople()">🔍 Scan for duplicates</button></div>
     <div id="dupResults" style="margin-top:10px"></div>
@@ -1564,7 +1571,7 @@ button.boolcap{cursor:pointer;font-family:inherit}
 
 <script>
 /* ============================ constants & state ============================ */
-const APP_VERSION = "417";             // keep equal to CACHE in sw.js; bump every change
+const APP_VERSION = "418";             // keep equal to CACHE in sw.js; bump every change
 const SCHEMA_VERSION = 1;
 const LS = "bench", LS_SYNC = "bench_sync";
 // Every name this PWA has shipped under, oldest→newest (live name === last === "bench"). ONE source of
@@ -5092,6 +5099,52 @@ function repairCorruptDates(){ const cand=[];
   confirmDialog(`🩹 Found ${cand.length} corrupted date${cand.length>1?"s":""} across ${recs} record${recs>1?"s":""}. Reformat them to YYYY-MM-DD?`,()=>{
     const t=now(), touched=new Set(); cand.forEach(c=>{ c.apply(); touched.add(c.obj); }); touched.forEach(o=>{ o.updatedAt=t; });
     DB.rev=Math.max(DB.rev||0,t); commit(); renderSettings(); toast(`Fixed ${cand.length} date${cand.length>1?"s":""}`); },"Fix"); }
+
+// Clean a churning activity: strip anything the Sheet can't faithfully round-trip so the record stops re-stamping
+// itself on every sync. stampSyncMeta() diffs EVERY top-level scalar + every additive list item against the last
+// synced baseline; anything that reads back from the Sheet in a different shape than we hold locally flips on each
+// pull → updatedAt gets re-stamped to now() → the row climbs to the top of "recently updated" for no reason.
+// This normalizes each event to exactly the synced schema (drops stray keys, merges the legacy seenWeeks alias,
+// de-dupes/ trims list items, rebuilds links to {label,url,fav}, coerces year/watchlistAt/date), and ONLY bumps +
+// re-pushes the records that actually changed — clean rows are left untouched so nothing else floods the list.
+const _EV_SCHEMA=new Set(["id","actorId","actorIds","studioName","series","seriesId","eventName","year","tags","photoURLs","links","seenWeek","watchlistAt","profilePics","attrs","metaTags","deleted","createdAt","updatedAt","syncMeta","date"]);
+const _EV_ALIAS={ seenWeeks:"seenWeek" };                                   // legacy plural → canonical (merged, then dropped)
+const _EV_LISTS=["actorIds","tags","photoURLs","links","seenWeek","metaTags","profilePics"];
+function _normList(f,arr){ const seen=new Set(), out=[];
+  (arr||[]).forEach(v=>{
+    if(f==="links"){ if(!v||typeof v!=="object") return; v={label:String(v.label==null?"":v.label).trim(), url:String(v.url==null?"":v.url).trim(), fav:!!v.fav}; if(!v.url && !v.label) return; }
+    else { if(v==null) return; if(typeof v==="string"){ v=v.trim(); if(!v) return; } }   // drop blank/whitespace-only strings
+    const k=_canon(v); if(seen.has(k)) return; seen.add(k); out.push(v); });
+  return out; }
+function rebuildChurningActivities(){
+  const el=$("rebuildActOut"); const report=[]; let fixed=0; const t=now();
+  DB.events.forEach(e=>{ if(!e||e.deleted) return;
+    const strays=[], changed=[];
+    // 1) merge legacy aliases into their canonical list, then collect every non-schema key for removal
+    for(const k in e){ if(_EV_SCHEMA.has(k)) continue;
+      const canon=_EV_ALIAS[k];
+      if(canon && Array.isArray(e[k])){ e[canon]=(e[canon]||[]).concat(e[k]); }   // fold in; _normList de-dupes below
+      strays.push(k); }
+    // 2) re-normalize each additive list (trim, drop blanks, de-dupe, canonicalize link shape)
+    _EV_LISTS.forEach(f=>{ if(e[f]==null) return; const nv=_normList(f,e[f]);
+      if(JSON.stringify(nv)!==JSON.stringify(e[f])){ e[f]=nv; changed.push(f); } });
+    // 3) scalar coercions to the exact types the Sheet reads back
+    if(e.year!=null && e.year!=="" && typeof e.year!=="number"){ const y=Number(e.year); if(!isNaN(y)){ e.year=y; changed.push("year"); } }
+    if(typeof e.watchlistAt!=="number"){ const w=e.watchlistAt?Number(e.watchlistAt)||0:0; if(w!==e.watchlistAt){ e.watchlistAt=w; changed.push("watchlistAt"); } }
+    const cd=cleanDateStr(e.date); if(cd && cd!==e.date){ e.date=cd; changed.push("date"); }
+    if(!strays.length && !changed.length) return;                                 // already clean → leave untouched (no bump)
+    strays.forEach(k=>{ delete e[k]; });
+    e.updatedAt=t; DB.rev=Math.max(DB.rev||0,t); fixed++;
+    report.push({name:e.eventName||e.id, strays, changed});
+  });
+  if(!fixed){ if(el) el.innerHTML='<span class="small muted">Every activity already round-trips cleanly — nothing to rebuild 👍</span>'; return; }
+  commit(); syncNow(true);
+  const lines=report.map(r=>`• <b>${esc(r.name)}</b>`
+    +(r.strays.length?` — removed stray field${r.strays.length>1?"s":""}: <code>${r.strays.map(esc).join(", ")}</code>`:"")
+    +(r.changed.length?` — normalized: <code>${r.changed.map(esc).join(", ")}</code>`:"")).join("<br>");
+  if(el) el.innerHTML=`<div class="small">Rebuilt ${fixed} activit${fixed>1?"ies":"y"} and re-synced clean copies:<br>${lines}</div>`;
+  toast(`Rebuilt ${fixed} activit${fixed>1?"ies":"y"}`);
+}
 
 /* ----- Duplicate people finder (name + alias aware) ----- */
 // normalize a name/alias for comparison: lowercase, strip accents & punctuation, collapse spaces
